@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "driver/i2c.h"
 #include "driver/gpio.h"
+#include <cstring>
 
 static const char* TAG = "SensorManager";
 
@@ -117,11 +118,17 @@ namespace SensorManager
         // Auto-save calibration if fully calibrated
         if (bnoData.calibSys == 3 && bnoData.calibGyro == 3 && bnoData.calibAccel == 3 && bnoData.calibMag == 3) {
             uint8_t currentCalib[22];
+            static uint8_t lastSavedCalib[22] = {0};
+            static bool hasSavedCalib = false;
+            
             if (BNO055::getCalibrationProfile(currentCalib)) {
-                // Since this runs every minute, we could check if it changed before writing to save flash wear,
-                // but for now we just overwrite to ensure it's saved.
-                StorageManager::saveCalibrationProfile(currentCalib, sizeof(currentCalib));
-                ESP_LOGI(TAG, "BNO055 fully calibrated - profile saved to flash.");
+                // Check if calibration data has changed before writing to flash to prevent wear
+                if (!hasSavedCalib || memcmp(currentCalib, lastSavedCalib, sizeof(currentCalib)) != 0) {
+                    StorageManager::saveCalibrationProfile(currentCalib, sizeof(currentCalib));
+                    memcpy(lastSavedCalib, currentCalib, sizeof(currentCalib));
+                    hasSavedCalib = true;
+                    ESP_LOGI(TAG, "BNO055 calibration updated - profile saved to flash.");
+                }
             }
         }
 
@@ -135,31 +142,10 @@ namespace SensorManager
         struct timeval tv;
         gettimeofday(&tv, NULL);
 
-        // 5. Construct JSON
+        // 5. Construct CSV
         if (outBuffer != nullptr && maxLen > 0) {
             snprintf(outBuffer, maxLen,
-                "{\n"
-                "  \"time\": %ld,\n"
-                "  \"gsr\": %d,\n"
-                "  \"bodyTemp\": %.2f,\n"
-                "  \"max30102\": {\n"
-                "    \"hr\": %ld,\n"
-                "    \"validHR\": %d,\n"
-                "    \"spo2\": %ld,\n"
-                "    \"validSPO2\": %d\n"
-                "  },\n"
-                "  \"bno055\": {\n"
-                "    \"euler\": [ %.2f, %.2f, %.2f ],\n"
-                "    \"quat\": [ %.2f, %.2f, %.2f, %.2f ],\n"
-                "    \"linear\": [ %.2f, %.2f, %.2f ],\n"
-                "    \"gravity\": [ %.2f, %.2f, %.2f ],\n"
-                "    \"accel\": [ %.2f, %.2f, %.2f ],\n"
-                "    \"gyro\": [ %.2f, %.2f, %.2f ],\n"
-                "    \"mag\": [ %.2f, %.2f, %.2f ],\n"
-                "    \"temp\": %d,\n"
-                "    \"calib\": [ %d, %d, %d, %d ]\n"
-                "  }\n"
-                "}",
+                "%ld,%d,%.2f,%ld,%d,%ld,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d",
                 (long)tv.tv_sec,
                 gsrValue, bodyTemp,
                 maxData.heartRate, maxData.validHR, maxData.spo2, maxData.validSPO2,
@@ -174,7 +160,7 @@ namespace SensorManager
                 bnoData.calibSys, bnoData.calibGyro, bnoData.calibAccel, bnoData.calibMag
             );
 
-            ESP_LOGI(TAG, "Generated JSON Data:\n%s", outBuffer);
+            ESP_LOGI(TAG, "Generated CSV Data:\n%s", outBuffer);
         }
 
         powerOff();

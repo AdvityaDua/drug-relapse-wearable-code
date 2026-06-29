@@ -80,28 +80,41 @@ void streamDataToBLE(BLEManager& ble) {
   }
 
   ESP_LOGI(TAG, "Starting BLE data sync...");
-  FILE *f = fopen(FILE_PATH, "r");
+  
+  const char* SYNC_FILE_PATH = "/littlefs/sync.log";
+  
+  // Rename the current data.log to sync.log to avoid race conditions
+  if (rename(FILE_PATH, SYNC_FILE_PATH) != 0) {
+      ESP_LOGW(TAG, "Failed to rename log file, or no data exists.");
+      return;
+  }
+
+  FILE *f = fopen(SYNC_FILE_PATH, "rb");
   if (f == NULL) {
-    ESP_LOGW(TAG, "No data file to sync.");
+    ESP_LOGW(TAG, "Failed to open sync log file.");
+    // In case of failure, try to restore the original name (optional)
+    rename(SYNC_FILE_PATH, FILE_PATH);
     return;
   }
 
-  char buffer[512]; // Large enough for one full JSON payload line
-  while (fgets(buffer, sizeof(buffer), f) != NULL) {
-    size_t len = strlen(buffer);
-    if (len > 0) {
-      ble.notifyData((const uint8_t *)buffer, len);
+  char buffer[240]; // Safe chunk size under BLE MTU of 244
+  size_t bytesRead;
+  while ((bytesRead = fread(buffer, 1, sizeof(buffer), f)) > 0) {
+    ble.notifyData((const uint8_t *)buffer, bytesRead);
 
-      // Allow NimBLE stack time to process the notification
-      vTaskDelay(pdMS_TO_TICKS(15));
-    }
+    // Allow NimBLE stack time to process the notification
+    vTaskDelay(pdMS_TO_TICKS(15));
   }
 
   fclose(f);
   ESP_LOGI(TAG, "BLE data sync complete.");
 
-  // Finally, delete the file so we start fresh for the next interval
-  clearData();
+  // Delete the sync file after successful streaming
+  if (remove(SYNC_FILE_PATH) == 0) {
+      ESP_LOGI(TAG, "Sync file deleted.");
+  } else {
+      ESP_LOGE(TAG, "Failed to delete sync file.");
+  }
 }
 
 bool saveCalibrationProfile(const uint8_t* data, size_t length)

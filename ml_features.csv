@@ -1,0 +1,35 @@
+feature_name,sensor_source,data_type,description,ml_use_case
+time,System RTC,uint32,Unix Epoch timestamp in seconds,Time-series indexing and temporal feature engineering (time of day, circadian rhythms)
+gsr,TLA2022 (ADC),int16,Galvanic Skin Response raw analog value,Indicator of emotional arousal, stress, or sympathetic nervous system activation
+bodyTemp,MAX30205,float,Clinical body temperature in Celsius,Baseline physiological state; spikes can indicate illness or extreme physical exertion
+hr,MAX30102,int32,Heart Rate in beats per minute (bpm),Key metric for stress, anxiety, cardiovascular exertion, or substance-induced tachycardia
+validHR,MAX30102,int8,Boolean flag (1 or 0) indicating if HR reading is reliable,Data cleaning/filtering (drop rows where validHR == 0)
+spo2,MAX30102,int32,Blood Oxygen Saturation percentage (%),Respiratory depression (e.g., opioid use) or general respiratory health
+validSPO2,MAX30102,int8,Boolean flag (1 or 0) indicating if SpO2 reading is reliable,Data cleaning/filtering
+bno055_euler_heading,BNO055,float,Euler angle heading (yaw) in degrees,Orientation tracking (direction user is facing)
+bno055_euler_roll,BNO055,float,Euler angle roll in degrees,Posture detection (e.g., lying down vs standing)
+bno055_euler_pitch,BNO055,float,Euler angle pitch in degrees,Posture detection (e.g., leaning forward/backward)
+bno055_quat_w,BNO055,float,Quaternion W component,Advanced rotation/orientation without gimbal lock
+bno055_quat_x,BNO055,float,Quaternion X component,Advanced rotation/orientation without gimbal lock
+bno055_quat_y,BNO055,float,Quaternion Y component,Advanced rotation/orientation without gimbal lock
+bno055_quat_z,BNO055,float,Quaternion Z component,Advanced rotation/orientation without gimbal lock
+bno055_linear_x,BNO055,float,Linear acceleration X (m/s^2) excluding gravity,Detecting dynamic movement (steps, running, falling)
+bno055_linear_y,BNO055,float,Linear acceleration Y (m/s^2) excluding gravity,Detecting dynamic movement (steps, running, falling)
+bno055_linear_z,BNO055,float,Linear acceleration Z (m/s^2) excluding gravity,Detecting dynamic movement (steps, running, falling)
+bno055_gravity_x,BNO055,float,Gravity vector X (m/s^2),Determining device orientation relative to earth
+bno055_gravity_y,BNO055,float,Gravity vector Y (m/s^2),Determining device orientation relative to earth
+bno055_gravity_z,BNO055,float,Gravity vector Z (m/s^2),Determining device orientation relative to earth
+bno055_accel_x,BNO055,float,Raw acceleration X (m/s^2) including gravity,Base acceleration data for custom filtering
+bno055_accel_y,BNO055,float,Raw acceleration Y (m/s^2) including gravity,Base acceleration data for custom filtering
+bno055_accel_z,BNO055,float,Raw acceleration Z (m/s^2) including gravity,Base acceleration data for custom filtering
+bno055_gyro_x,BNO055,float,Angular velocity X (degrees/second),Detecting fast rotational movements (tremors, seizures, twitching, gestures)
+bno055_gyro_y,BNO055,float,Angular velocity Y (degrees/second),Detecting fast rotational movements
+bno055_gyro_z,BNO055,float,Angular velocity Z (degrees/second),Detecting fast rotational movements
+bno055_mag_x,BNO055,float,Magnetic field X (microteslas),Compass/heading calculation; environment magnetic interference
+bno055_mag_y,BNO055,float,Magnetic field Y (microteslas),Compass/heading calculation
+bno055_mag_z,BNO055,float,Magnetic field Z (microteslas),Compass/heading calculation
+bno055_temp,BNO055,int8,IMU chip temperature in Celsius,Correlating ambient temperature or sensor drift compensation
+bno055_calib_sys,BNO055,int8,System calibration status (0-3),Quality assurance metric for IMU data reliability
+bno055_calib_gyro,BNO055,int8,Gyroscope calibration status (0-3),Quality assurance metric for IMU data reliability
+bno055_calib_accel,BNO055,int8,Accelerometer calibration status (0-3),Quality assurance metric for IMU data reliability
+bno055_calib_mag,BNO055,int8,Magnetometer calibration status (0-3),Quality assurance metric for IMU data reliability

@@ -27,12 +27,12 @@ void dataCollectionTask(void *pvParameters)
                 if (!StorageManager::logSensorData(jsonBuffer)) {
                     ESP_LOGE(TAG, "Failed to write sensor data to flash.");
                 } else {
-                    ESP_LOGI(TAG, "Successfully written 1-minute sensor reading to flash.");
+                    ESP_LOGI(TAG, "Successfully written 1-second sensor reading to flash.");
                 }
             }
         }
 
-        // Delay for the configured sample interval (e.g., 1 minute).
+        // Delay for the configured sample interval (e.g., 1 second).
         // During this delay, the ESP32 will automatically enter Light Sleep to save battery!
         vTaskDelay(pdMS_TO_TICKS(commandManager.getSampleIntervalMs()));
     }

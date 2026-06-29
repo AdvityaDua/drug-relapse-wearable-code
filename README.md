@@ -30,7 +30,7 @@ The codebase is strictly modularized within the `src/` directory:
 ### 3. Execution Flow & Power Management
 1. **Boot**: The ESP32 wakes up, initializes NVS, and restores the BNO055 calibration profile from LittleFS.
 2. **Idle**: The BLE stack is brought online. If no commands are executing, the FreeRTOS idle task automatically drops the ESP32-C6 into a power-saving Light Sleep mode.
-3. **Autonomous Collection Task**: An RTOS task runs strictly on a predefined interval (e.g., 1 minute). It temporarily wakes the system, pulses power to the sensors, logs a timestamped JSON reading to LittleFS, and immediately returns to sleep.
+3. **Autonomous Collection Task**: An RTOS task runs strictly on a predefined interval (e.g., 1 second). It temporarily wakes the system, pulses power to the sensors, logs a timestamped JSON reading to LittleFS, and immediately returns to sleep.
 
 ---
 
