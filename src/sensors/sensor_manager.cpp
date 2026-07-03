@@ -111,9 +111,26 @@ namespace SensorManager
         MAX30102::MAX30102_Data maxData = MAX30102::readAndCalculate();
         vTaskDelay(pdMS_TO_TICKS(100)); // Simulate time taken
 
+        ESP_LOGI(TAG, "┌── MAX30102 (Pulse Oximeter) ──────────────");
+        ESP_LOGI(TAG, "│ Heart Rate : %ld bpm (valid: %s)", maxData.heartRate, maxData.validHR ? "YES" : "NO");
+        ESP_LOGI(TAG, "│ SpO2       : %ld %% (valid: %s)", maxData.spo2, maxData.validSPO2 ? "YES" : "NO");
+        ESP_LOGI(TAG, "└──────────────────────────────────────────");
+
         // 2. Read BNO055 (instantaneous I2C burst)
         BNO055::BNO055_Data bnoData;
         BNO055::readAll(&bnoData);
+
+        ESP_LOGI(TAG, "┌── BNO055 (9-DOF IMU) ────────────────────");
+        ESP_LOGI(TAG, "│ Euler      : H=%.2f° R=%.2f° P=%.2f°", bnoData.eulerHeading, bnoData.eulerRoll, bnoData.eulerPitch);
+        ESP_LOGI(TAG, "│ Quaternion : W=%.4f X=%.4f Y=%.4f Z=%.4f", bnoData.quatW, bnoData.quatX, bnoData.quatY, bnoData.quatZ);
+        ESP_LOGI(TAG, "│ Accel      : X=%.2f Y=%.2f Z=%.2f m/s²", bnoData.accelX, bnoData.accelY, bnoData.accelZ);
+        ESP_LOGI(TAG, "│ Gyro       : X=%.2f Y=%.2f Z=%.2f dps", bnoData.gyroX, bnoData.gyroY, bnoData.gyroZ);
+        ESP_LOGI(TAG, "│ Mag        : X=%.2f Y=%.2f Z=%.2f µT", bnoData.magX, bnoData.magY, bnoData.magZ);
+        ESP_LOGI(TAG, "│ LinAccel   : X=%.2f Y=%.2f Z=%.2f m/s²", bnoData.linearAccelX, bnoData.linearAccelY, bnoData.linearAccelZ);
+        ESP_LOGI(TAG, "│ Gravity    : X=%.2f Y=%.2f Z=%.2f m/s²", bnoData.gravityX, bnoData.gravityY, bnoData.gravityZ);
+        ESP_LOGI(TAG, "│ Temp       : %d °C", bnoData.temp);
+        ESP_LOGI(TAG, "│ Calibration: Sys=%d Gyro=%d Accel=%d Mag=%d", bnoData.calibSys, bnoData.calibGyro, bnoData.calibAccel, bnoData.calibMag);
+        ESP_LOGI(TAG, "└──────────────────────────────────────────");
 
         // Auto-save calibration if fully calibrated
         if (bnoData.calibSys == 3 && bnoData.calibGyro == 3 && bnoData.calibAccel == 3 && bnoData.calibMag == 3) {
@@ -135,8 +152,16 @@ namespace SensorManager
         // 3. Read TinyGSR (takes ~72ms for 8 samples)
         int16_t gsrValue = TLA2022::readGSR();
 
+        ESP_LOGI(TAG, "┌── TLA2022 (GSR Sensor) ──────────────────");
+        ESP_LOGI(TAG, "│ GSR Value  : %d (8-tap filtered sum)", gsrValue);
+        ESP_LOGI(TAG, "└──────────────────────────────────────────");
+
         // 4. Read MAX30205 (takes ~55ms for one-shot)
         float bodyTemp = MAX30205::readTemperature();
+
+        ESP_LOGI(TAG, "┌── MAX30205 (Body Temperature) ───────────");
+        ESP_LOGI(TAG, "│ Body Temp  : %.2f °C", bodyTemp);
+        ESP_LOGI(TAG, "└──────────────────────────────────────────");
 
         // Get Timestamp
         struct timeval tv;

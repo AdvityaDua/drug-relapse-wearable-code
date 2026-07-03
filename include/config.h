@@ -36,6 +36,9 @@ constexpr int BUS_LOW_WAKE_LEVEL = 0;
 // Sensor Power Enable
 constexpr gpio_num_t PIN_SENSOR_POWER = GPIO_NUM_3;
 
+// Onboard LED (XIAO ESP32C6 built-in LED, active-low)
+constexpr gpio_num_t PIN_LED = GPIO_NUM_15;
+
 /*=========================================================
                     BLE CONFIGURATION
 =========================================================*/

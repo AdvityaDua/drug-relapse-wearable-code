@@ -37,11 +37,11 @@ void PowerManager::begin()
 
     disableSensorPower();
 
-    // Configure Automatic Light Sleep
+    // Configure Automatic Light Sleep (disabled during debugging to prevent native USB-Serial/JTAG disconnects)
     esp_pm_config_t pm_config = {};
     pm_config.max_freq_mhz = 160;
     pm_config.min_freq_mhz = 10;
-    pm_config.light_sleep_enable = true;
+    pm_config.light_sleep_enable = false;
     esp_pm_configure(&pm_config);
 
     currentState = PowerState::ACTIVE;
@@ -101,6 +101,17 @@ void PowerManager::enterDeepSleep()
 
     // Wake when jumper is removed (GPIO goes LOW via pulldown)
     esp_sleep_enable_ext1_wakeup(1ULL << PIN_BUS_LOW, ESP_EXT1_WAKEUP_ANY_LOW);
+
+    // Blink LED 4 times to indicate shutdown (LED is active-low: LOW=ON, HIGH=OFF)
+    ESP_LOGI(TAG, "Blinking LED 4 times before shutdown...");
+    gpio_set_direction(PIN_LED, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_LED, 1); // Start with LED OFF
+    for (int i = 0; i < 4; i++) {
+        gpio_set_level(PIN_LED, 0); // LED ON
+        vTaskDelay(pdMS_TO_TICKS(150));
+        gpio_set_level(PIN_LED, 1); // LED OFF
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
 
     ESP_LOGI(TAG, "Entering Deep Sleep");
 
