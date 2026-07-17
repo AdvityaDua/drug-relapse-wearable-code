@@ -22,8 +22,7 @@ class _CsvPreviewScreenState extends ConsumerState<CsvPreviewScreen> {
   void _buildGridData() {
     columns.clear();
     rows.clear();
-    final csvController = ref.read(csvControllerProvider);
-    final csvRows = csvController.rows;
+    final csvRows = ref.read(csvControllerProvider);
 
     if (csvRows.isEmpty) return;
 
@@ -52,9 +51,8 @@ class _CsvPreviewScreenState extends ConsumerState<CsvPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Keep watching csvChunks to trigger rebuild if new data comes in
-    ref.watch(csvChunksProvider);
-    final csvController = ref.watch(csvControllerProvider);
+    final csvRows = ref.watch(csvControllerProvider);
+    final csvControllerNotifier = ref.read(csvControllerProvider.notifier);
     final patient = ref.watch(patientProvider);
     final sessionManager = ref.read(sessionManagerProvider.notifier);
 
@@ -70,13 +68,22 @@ class _CsvPreviewScreenState extends ConsumerState<CsvPreviewScreen> {
             tooltip: 'Download CSV',
             onPressed: () async {
               if (patient != null) {
-                final path = await csvController.downloadCsv(patient.id, sessionManager.sessionId ?? 'unknown');
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('Saved to: $path'),
-                    duration: const Duration(seconds: 3),
-                    backgroundColor: const Color(0xFF388E3C),
-                  ));
+                try {
+                  final path = await csvControllerNotifier.downloadCsv(patient.id, sessionManager.sessionId ?? 'unknown');
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Saved to: $path'),
+                      duration: const Duration(seconds: 3),
+                      backgroundColor: const Color(0xFF388E3C),
+                    ));
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Download failed: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ));
+                  }
                 }
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No patient selected')));
@@ -86,9 +93,18 @@ class _CsvPreviewScreenState extends ConsumerState<CsvPreviewScreen> {
           IconButton(
             icon: const Icon(Icons.share),
             tooltip: 'Share CSV',
-            onPressed: () {
+            onPressed: () async {
               if (patient != null) {
-                csvController.shareCsv(patient.id, sessionManager.sessionId ?? 'unknown');
+                try {
+                  await csvControllerNotifier.shareCsv(patient.id, sessionManager.sessionId ?? 'unknown');
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Share failed: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ));
+                  }
+                }
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No patient selected')));
               }
@@ -97,7 +113,7 @@ class _CsvPreviewScreenState extends ConsumerState<CsvPreviewScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: csvController.rows.isEmpty
+      body: csvRows.isEmpty
           ? const Center(child: Text('No CSV data available. Sync data from the device.'))
           : Container(
               margin: const EdgeInsets.all(16.0),
@@ -115,7 +131,7 @@ class _CsvPreviewScreenState extends ConsumerState<CsvPreviewScreen> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: PlutoGrid(
-                  key: ValueKey(csvController.rows.length),
+                  key: ValueKey(csvRows.length),
                   columns: columns,
                   rows: rows,
                   configuration: const PlutoGridConfiguration(

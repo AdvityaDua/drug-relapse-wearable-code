@@ -13,7 +13,7 @@ final bleServiceProvider = Provider<BleService>((ref) {
 });
 
 // CSV Controller Provider
-final csvControllerProvider = Provider<CsvController>((ref) {
+final csvControllerProvider = NotifierProvider<CsvController, List<List<dynamic>>>(() {
   return CsvController();
 });
 
@@ -88,14 +88,4 @@ final liveDataProvider = StreamProvider<String>((ref) {
   return ref.watch(bleServiceProvider).liveDataStream;
 });
 
-// A provider that listens to CSV chunks and updates the CsvController
-final csvChunksProvider = StreamProvider<String>((ref) {
-  final stream = ref.watch(bleServiceProvider).csvDataStream;
-  final controller = ref.watch(csvControllerProvider);
-  
-  stream.listen((chunk) {
-    controller.addCsvChunk(chunk);
-  });
-  
-  return stream;
-});
+

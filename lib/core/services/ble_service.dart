@@ -272,6 +272,8 @@ class BleService {
         writeCommand(BleCommands.startCollection);
       } else if (text.trim() == "2") {
         writeCommand(BleCommands.stopCollection);
+      } else if (text.trim() == "3") {
+        writeCommand(BleCommands.syncData);
       }
     } else {
       if (_writeCharacteristic != null) {
