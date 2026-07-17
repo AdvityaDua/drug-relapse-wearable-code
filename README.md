@@ -4,7 +4,7 @@ A modern, high-performance **Flutter** application built as a capstone project t
 
 ---
 
-## Key Features
+## 🚀 Key Features
 
 * **Advanced BLE Scanning & Pairing**:
   * Real-time permission handling (Bluetooth Scan, Connect, and Location) for Android 12+ and iOS.
@@ -30,7 +30,7 @@ A modern, high-performance **Flutter** application built as a capstone project t
 
 ---
 
-##  Technology Stack
+## 🛠️ Technology Stack
 
 | Component | Package | Description |
 | :--- | :--- | :--- |
@@ -45,7 +45,7 @@ A modern, high-performance **Flutter** application built as a capstone project t
 
 ---
 
-## BLE Command Protocol (UART ASCII)
+## 📡 BLE Command Protocol (UART ASCII)
 
 The app communicates with the wearable's Nordic UART Service (NUS) using UTF-8 string messages terminated with a newline (`\n`).
 
@@ -59,7 +59,7 @@ The app communicates with the wearable's Nordic UART Service (NUS) using UTF-8 s
 
 ---
 
-##  Project Architecture
+## 📂 Project Architecture
 
 The codebase adheres to a clean layered architecture separating concerns into:
 
@@ -81,7 +81,7 @@ flutter_blue_plus ──► ESP32 Wearable
 
 ---
 
-##  Getting Started
+## 🛠️ Getting Started
 
 ### Prerequisites
 
