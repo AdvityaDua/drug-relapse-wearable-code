@@ -1,13 +1,13 @@
 class BleUuids {
-  // ── ESP32 Custom Wearable Service (Nordic UART Service) ──
+  // ── ESP32 Custom Wearable Service ──
   /// The primary service UUID that the wearable advertises.
-  static const String espServiceUuid = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
+  static const String espServiceUuid = "8A6F0001-5C2E-4C89-8C67-3E6E52E10001";
   
   /// The characteristic the phone uses to WRITE commands to the wearable (TX from Phone -> RX on ESP32).
-  static const String espRxCharacteristicUuid = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"; 
+  static const String espRxCharacteristicUuid = "8A6F0002-5C2E-4C89-8C67-3E6E52E10002"; 
   
   /// The characteristic the phone uses to READ/LISTEN to data from the wearable (RX on Phone <- TX from ESP32).
-  static const String espTxCharacteristicUuid = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"; 
+  static const String espTxCharacteristicUuid = "8A6F0004-5C2E-4C89-8C67-3E6E52E10004";
 
   // ── Standard BLE Services ──
   /// Standard BLE Battery Service UUID (0x180F)

@@ -194,7 +194,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ElevatedButton(
                     onPressed: () {
                       if (sessionState == SessionState.active) {
-                        bleService.writeCommand(BleCommands.getLiveData);
                         context.push('/live_data');
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -247,19 +246,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             sessionManager.setPatient(updatedPatient);
                             sessionManager.startSession();
                             bleService.writeCommand(BleCommands.startCollection);
-                            
-                            // Automatically show first live data census
-                            bleService.writeCommand(BleCommands.getLiveData);
-                            if (context.mounted) context.push('/live_data');
                           }
                         } else {
                           sessionManager.setPatient(patient);
                           sessionManager.startSession();
                           bleService.writeCommand(BleCommands.startCollection);
-                          
-                          // Automatically show first live data census
-                          bleService.writeCommand(BleCommands.getLiveData);
-                          if (context.mounted) context.push('/live_data');
                         }
                       }
                     },

@@ -142,9 +142,15 @@ class BleService {
             if (name.isEmpty) {
               name = r.device.platformName;
             }
+            
             if (name.isEmpty) {
-              name = 'Unknown Device';
+              // Try to identify if it's the ESP32 based on service UUIDs
+              bool isEsp = r.advertisementData.serviceUuids.any((uuid) => 
+                  uuid.toString().toLowerCase() == espServiceUuid.toLowerCase());
+              
+              name = isEsp ? 'ESP32 (Hidden Name)' : 'Unknown Device';
             }
+
             found.add(WearableDevice(
               id: r.device.remoteId.str,
               name: name,
@@ -318,9 +324,8 @@ class BleService {
     } else {
       if (_writeCharacteristic != null) {
         try {
-          // Write command as a string followed by a newline for UART compatibility (e.g. "1\n")
-          final commandStr = '$command\n';
-          await _writeCharacteristic!.write(utf8.encode(commandStr));
+          // Send command as a raw byte. The ESP32 expects `buf[0]` to be the command enum value.
+          await _writeCharacteristic!.write([command]);
         } catch (_) {
           // Ignore command failures if device disconnects suddenly
         }
@@ -367,6 +372,15 @@ class BleService {
     if (_bleDevice == null) return;
     try {
       final services = await _bleDevice!.discoverServices();
+      print("========== DISCOVERED BLE SERVICES ==========");
+      for (final s in services) {
+        print("Service: ${s.uuid}");
+        for (final c in s.characteristics) {
+          print("  -> Characteristic: ${c.uuid} (Write: ${c.properties.write}, Notify: ${c.properties.notify})");
+        }
+      }
+      print("=============================================");
+
       for (final s in services) {
         if (s.uuid.toString().toLowerCase() == BleUuids.espServiceUuid.toLowerCase()) {
           for (final c in s.characteristics) {
@@ -403,7 +417,10 @@ class BleService {
       if (_writeCharacteristic == null) {
         for (final s in services) {
           for (final c in s.characteristics) {
-            if (c.properties.write || c.properties.writeWithoutResponse) {
+            // Ignore standard 16-bit GATT UUIDs (which often start with 0000xxxx) to avoid writing to system features like 2B29
+            bool isCustomUuid = c.uuid.toString().length > 8 && !c.uuid.toString().startsWith("0000");
+            if (isCustomUuid && (c.properties.write || c.properties.writeWithoutResponse)) {
+              print("WARNING: Falling back to writable characteristic ${c.uuid}");
               _writeCharacteristic = c;
               break;
             }
