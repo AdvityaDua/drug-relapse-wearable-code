@@ -7,13 +7,18 @@ import 'package:health_wearable/core/services/csv_controller.dart';
 import 'package:health_wearable/core/services/ble_service.dart';
 import 'package:health_wearable/core/services/providers.dart';
 
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
 class MockPathProviderPlatform extends PathProviderPlatform {
   @override
   Future<String?> getApplicationDocumentsPath() async {
-    return '.';
+    final dir = Directory('.dart_tool/test_csv');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir.path;
   }
 }
 
