@@ -1,10 +1,10 @@
 # Health Wearable Controller & Patient Session Manager
 
-A modern, high-performance **Flutter** application built as a capstone project to interface with an ESP32-based health-monitoring wearable. The app manages patient records, handles secure Bluetooth Low Energy (BLE) pairing, runs real-time monitoring sessions, and provides tools for offline CSV data analysis and sharing.
+A modern, high-performance **Flutter** application built as a capstone project to interface with an ESP32-based drug-relapse prevention and health-monitoring wearable. The app manages patient profiles, handles secure Bluetooth Low Energy (BLE) pairing, runs real-time vitals monitoring sessions, and provides tools for offline CSV data analysis and sharing.
 
 ---
 
-##  Key Features
+## Key Features
 
 * **Advanced BLE Scanning & Pairing**:
   * Real-time permission handling (Bluetooth Scan, Connect, and Location) for Android 12+ and iOS.
@@ -30,22 +30,22 @@ A modern, high-performance **Flutter** application built as a capstone project t
 
 ---
 
-## Technology Stack
+##  Technology Stack
 
-| Component | Package |
-| :--- | :--- |
-| **BLE Communication** | `flutter_blue_plus` |
-| **State Management** | `flutter_riverpod` |
-| **Navigation** | `go_router` |
-| **Spreadsheet Grid** | `pluto_grid` |
-| **CSV Parsing** | `csv` |
-| **Storage Access** | `path_provider` |
-| **File Sharing** | `share_plus` |
-| **Permissions** | `permission_handler` |
+| Component | Package | Description |
+| :--- | :--- | :--- |
+| **BLE Communication** | `flutter_blue_plus` | Handles connection, discovery, and notification streams. |
+| **State Management** | `flutter_riverpod` | Controls global application state using Notifiers. |
+| **Navigation** | `go_router` | Manages declarative routing and screen navigation. |
+| **Spreadsheet Grid** | `pluto_grid` | Powering the interactive CSV spreadsheet viewer. |
+| **CSV Parsing** | `csv` | Handles encoding and decoding CSV strings. |
+| **Storage Access** | `path_provider` | Dynamically locates the application documents directory. |
+| **File Sharing** | `share_plus` | Handles system native share and export dialogs. |
+| **Permissions** | `permission_handler` | Coordinates Android and iOS system permissions. |
 
 ---
 
-##  BLE Command Protocol (UART ASCII)
+## BLE Command Protocol (UART ASCII)
 
 The app communicates with the wearable's Nordic UART Service (NUS) using UTF-8 string messages terminated with a newline (`\n`).
 
@@ -81,7 +81,7 @@ flutter_blue_plus ──► ESP32 Wearable
 
 ---
 
-## Getting Started
+##  Getting Started
 
 ### Prerequisites
 
@@ -92,8 +92,8 @@ flutter_blue_plus ──► ESP32 Wearable
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/Yowan-Sharma/capstone.git
-   cd capstone/health_wearable
+   git clone https://github.com/AdvityaDua/drug-relapse-wearable-code.git
+   cd drug-relapse-wearable-code/health_wearable
    ```
 
 2. **Install dependencies**:
