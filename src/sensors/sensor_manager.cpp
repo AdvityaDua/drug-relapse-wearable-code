@@ -20,7 +20,7 @@ namespace SensorManager
         ESP_LOGI(TAG, "Powering ON sensors via GPIO...");
         gpio_set_direction((gpio_num_t)PIN_SENSOR_POWER, GPIO_MODE_OUTPUT);
         gpio_set_level((gpio_num_t)PIN_SENSOR_POWER, 1);
-        vTaskDelay(pdMS_TO_TICKS(50)); // Wait 50ms for sensors to power up stability
+        vTaskDelay(pdMS_TO_TICKS(650)); // Wait 650ms for BNO055 and other sensors to fully boot up
         
         ESP_LOGI(TAG, "Initializing I2C Master...");
         
@@ -86,6 +86,10 @@ namespace SensorManager
         // Deinitialize I2C driver so it doesn't hold the pins high while power is cut
         i2c_driver_delete((i2c_port_t)I2C_MASTER_NUM);
 
+        // Reset I2C pins so they don't back-power the sensors via internal pullups
+        gpio_reset_pin((gpio_num_t)I2C_MASTER_SDA_IO);
+        gpio_reset_pin((gpio_num_t)I2C_MASTER_SCL_IO);
+
         // Cut GPIO power
         gpio_set_level((gpio_num_t)PIN_SENSOR_POWER, 0);
     }
@@ -107,9 +111,10 @@ namespace SensorManager
         ESP_LOGI(TAG, "--- SensorManager::takeReading() Started ---");
         powerOn();
 
-        // 1. Read MAX30102 (takes ~1 second)
-        MAX30102::MAX30102_Data maxData = MAX30102::readAndCalculate();
-        vTaskDelay(pdMS_TO_TICKS(100)); // Simulate time taken
+        // 1. Read MAX30102 (takes ~1 second) - Commented out to avoid timeout for now
+        // MAX30102::MAX30102_Data maxData = MAX30102::readAndCalculate();
+        // vTaskDelay(pdMS_TO_TICKS(100)); // Simulate time taken
+        MAX30102::MAX30102_Data maxData = {0, 0, 0, 0};
 
         ESP_LOGI(TAG, "┌── MAX30102 (Pulse Oximeter) ──────────────");
         ESP_LOGI(TAG, "│ Heart Rate : %ld bpm (valid: %s)", maxData.heartRate, maxData.validHR ? "YES" : "NO");

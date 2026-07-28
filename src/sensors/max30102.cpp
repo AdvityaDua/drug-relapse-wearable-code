@@ -22,7 +22,9 @@ namespace MAX30102
 
     bool init() {
         // Soft Reset
-        write_reg(0x09, 0x40);
+        if (write_reg(0x09, 0x40) != ESP_OK) {
+            return false; // Sensor not responding
+        }
         vTaskDelay(pdMS_TO_TICKS(100)); 
 
         // FIFO configuration: sample average = 1 (0x00), rollover enabled, almost full = 15
@@ -59,10 +61,11 @@ namespace MAX30102
         write_reg(0x06, 0x00);
 
         int sampleCount = 0;
+        int timeoutCounter = 0; // Prevent infinite loop
         uint8_t reg = 0x07; // FIFO Data register
         uint8_t rx_buf[6];
 
-        while (sampleCount < 100) {
+        while (sampleCount < 100 && timeoutCounter < 200) {
             uint8_t wr_ptr = 0, rd_ptr = 0;
             read_reg(0x04, &wr_ptr);
             read_reg(0x06, &rd_ptr);
@@ -72,18 +75,26 @@ namespace MAX30102
 
             for (int i = 0; i < samplesAvailable && sampleCount < 100; i++) {
                 // Read 6 bytes from FIFO (3 Red, 3 IR)
-                i2c_master_write_read_device((i2c_port_t)I2C_MASTER_NUM, MAX30102_ADDR, &reg, 1, rx_buf, 6, pdMS_TO_TICKS(100));
-                
-                uint32_t red = ((uint32_t)rx_buf[0] << 16) | ((uint32_t)rx_buf[1] << 8) | rx_buf[2];
-                uint32_t ir = ((uint32_t)rx_buf[3] << 16) | ((uint32_t)rx_buf[4] << 8) | rx_buf[5];
-                
-                // Data is left-justified, only lowest 18 bits are valid
-                redBuffer[sampleCount] = red & 0x03FFFF;
-                irBuffer[sampleCount] = ir & 0x03FFFF;
-                sampleCount++;
+                if (i2c_master_write_read_device((i2c_port_t)I2C_MASTER_NUM, MAX30102_ADDR, &reg, 1, rx_buf, 6, pdMS_TO_TICKS(100)) == ESP_OK) {
+                    uint32_t red = ((uint32_t)rx_buf[0] << 16) | ((uint32_t)rx_buf[1] << 8) | rx_buf[2];
+                    uint32_t ir = ((uint32_t)rx_buf[3] << 16) | ((uint32_t)rx_buf[4] << 8) | rx_buf[5];
+                    
+                    // Data is left-justified, only lowest 18 bits are valid
+                    redBuffer[sampleCount] = red & 0x03FFFF;
+                    irBuffer[sampleCount] = ir & 0x03FFFF;
+                    sampleCount++;
+                } else {
+                    break;
+                }
             }
             // Sleep to let the FIFO fill (at 100Hz, 1 sample = 10ms)
             vTaskDelay(pdMS_TO_TICKS(10)); 
+            timeoutCounter++;
+        }
+        
+        if (timeoutCounter >= 200) {
+            ESP_LOGE(TAG, "Timed out waiting for data!");
+            return outData; // Return empty/invalid data
         }
 
         int32_t spo2;

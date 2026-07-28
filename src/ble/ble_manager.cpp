@@ -41,6 +41,9 @@ static ble_uuid128_t s_commandCharUuid;
 static ble_uuid128_t s_dataCharUuid;
 static ble_uuid128_t s_batteryCharUuid;
 
+static uint16_t s_dataValHandle;
+static uint16_t s_batteryValHandle;
+
 /*=========================================================
               GATT Service Definition
 =========================================================*/
@@ -66,7 +69,7 @@ static const struct ble_gatt_chr_def s_characteristics[] = {
         .descriptors = nullptr,
         .flags = BLE_GATT_CHR_F_NOTIFY,
         .min_key_size = 0,
-        .val_handle = &s_bleManager->dataValHandle,
+        .val_handle = &s_dataValHandle,
         .cpfd = nullptr,
     },
     {
@@ -76,7 +79,7 @@ static const struct ble_gatt_chr_def s_characteristics[] = {
         .descriptors = nullptr,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .min_key_size = 0,
-        .val_handle = &s_bleManager->batteryValHandle,
+        .val_handle = &s_batteryValHandle,
         .cpfd = nullptr,
     },
     { 0 },  /* Terminator */
@@ -134,13 +137,21 @@ int BLEManager::gapEventHandler(struct ble_gap_event* event, void* arg)
             if (mgr)
             {
                 mgr->connected = false;
-                mgr->connHandle = 0;
+                mgr->connHandle = BLE_HS_CONN_HANDLE_NONE;
                 mgr->startAdvertising();
             }
             break;
 
         case BLE_GAP_EVENT_MTU:
             ESP_LOGI(TAG, "MTU updated: %d", event->mtu.value);
+            break;
+
+        case BLE_GAP_EVENT_SUBSCRIBE:
+            ESP_LOGI(TAG, "Subscribe event: conn_handle=%d attr_handle=%d, prev_notify=%d, cur_notify=%d",
+                     event->subscribe.conn_handle,
+                     event->subscribe.attr_handle,
+                     event->subscribe.prev_notify,
+                     event->subscribe.cur_notify);
             break;
 
         case BLE_GAP_EVENT_PASSKEY_ACTION:
@@ -177,6 +188,19 @@ int BLEManager::gattAccessHandler(uint16_t conn_handle, uint16_t attr_handle,
                                    struct ble_gatt_access_ctxt* ctxt, void* arg)
 {
     BLEManager* mgr = s_bleManager;
+
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR)
+    {
+        /* Handle READ on the battery characteristic */
+        if (mgr && attr_handle == s_batteryValHandle)
+        {
+            uint8_t battPct = mgr->lastBatteryPercent;
+            int rc = os_mbuf_append(ctxt->om, &battPct, sizeof(battPct));
+            ESP_LOGI(TAG, "Battery READ: %d%%", battPct);
+            return (rc == 0) ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+        }
+        return BLE_ATT_ERR_UNLIKELY;
+    }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR)
     {
@@ -217,10 +241,12 @@ int BLEManager::gattAccessHandler(uint16_t conn_handle, uint16_t attr_handle,
         xSemaphoreGive(mgr->commandSemaphore);
 
         ESP_LOGI(TAG, "Command Received: 0x%02X", (unsigned)buf[0]);
+        return 0;
     }
 
-    return 0;
+    return BLE_ATT_ERR_UNLIKELY;
 }
+
 
 /*=========================================================
               NimBLE Host Task & Callbacks
@@ -261,7 +287,8 @@ BLEManager::BLEManager()
     connected = false;
     commandAvailable = false;
     latestPacket = {};
-    connHandle = 0;
+    connHandle = BLE_HS_CONN_HANDLE_NONE;
+    lastBatteryPercent = 0;
 
     s_bleManager = this;
 }
@@ -287,12 +314,12 @@ void BLEManager::begin()
     ble_hs_cfg.sync_cb = onSync;
     
     /* Configure NimBLE Security Manager Protocol (SMP) */
-    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_ONLY;
-    ble_hs_cfg.sm_bonding = 1;
-    ble_hs_cfg.sm_mitm = 1;
-    ble_hs_cfg.sm_sc = 1;
-    ble_hs_cfg.sm_our_key_dist = 1; // Enc Key
-    ble_hs_cfg.sm_their_key_dist = 1;
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
+    ble_hs_cfg.sm_bonding = 0;
+    ble_hs_cfg.sm_mitm = 0;
+    ble_hs_cfg.sm_sc = 0;
+    ble_hs_cfg.sm_our_key_dist = 0;
+    ble_hs_cfg.sm_their_key_dist = 0;
 
     /* Set preferred MTU */
     ble_att_set_preferred_mtu(BLE_MTU);
@@ -409,7 +436,7 @@ bool BLEManager::waitForCommand(TickType_t timeout)
 
 void BLEManager::notifyData(const uint8_t* data, size_t length)
 {
-    if (!connected || connHandle == 0 || length == 0) return;
+    if (!connected || connHandle == BLE_HS_CONN_HANDLE_NONE || length == 0) return;
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, length);
     if (!om) {
@@ -417,7 +444,8 @@ void BLEManager::notifyData(const uint8_t* data, size_t length)
         return;
     }
 
-    int rc = ble_gatts_notify_custom(connHandle, dataValHandle, om);
+    ESP_LOGI(TAG, "Sending notification: connHandle=%d, valHandle=%d, len=%d", connHandle, s_dataValHandle, length);
+    int rc = ble_gatts_notify_custom(connHandle, s_dataValHandle, om);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to send notification: %d", rc);
     }
@@ -425,7 +453,9 @@ void BLEManager::notifyData(const uint8_t* data, size_t length)
 
 void BLEManager::notifyBattery(uint8_t percentage)
 {
-    if (!connected || connHandle == 0) return;
+    lastBatteryPercent = percentage;
+
+    if (!connected || connHandle == BLE_HS_CONN_HANDLE_NONE) return;
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(&percentage, sizeof(percentage));
     if (!om) {
@@ -433,7 +463,7 @@ void BLEManager::notifyBattery(uint8_t percentage)
         return;
     }
 
-    int rc = ble_gatts_notify_custom(connHandle, batteryValHandle, om);
+    int rc = ble_gatts_notify_custom(connHandle, s_batteryValHandle, om);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to send battery notification: %d", rc);
     }

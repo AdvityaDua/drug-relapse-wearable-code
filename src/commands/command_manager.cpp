@@ -73,8 +73,12 @@ StatusCode CommandManager::executeCommand(const CommandPacket &packet,
 
   case Command::SYNC_DATA:
     ESP_LOGI(TAG, "SYNC_DATA requested - Streaming to BLE");
-    StorageManager::streamDataToBLE(ble);
-    return StatusCode::SUCCESS;
+    if (StorageManager::streamDataToBLE(ble)) {
+        return StatusCode::SUCCESS;
+    } else {
+        ESP_LOGW(TAG, "SYNC_DATA completed but no data was available to send.");
+        return StatusCode::ERROR;
+    }
 
   case Command::GET_STATUS:
     ESP_LOGI(TAG, "Status -> collecting: %s", collecting ? "true" : "false");

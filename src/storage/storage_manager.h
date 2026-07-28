@@ -27,8 +27,9 @@ namespace StorageManager
     /**
      * @brief Opens data.log and streams its contents over BLE line-by-line, then deletes it.
      * @param ble Reference to the BLEManager to send notifications through.
+     * @return true if data was streamed, false if no data existed.
      */
-    void streamDataToBLE(BLEManager& ble);
+    bool streamDataToBLE(BLEManager& ble);
 
     /**
      * @brief Saves a binary calibration profile to LittleFS

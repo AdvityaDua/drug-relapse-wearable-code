@@ -52,8 +52,7 @@ public:
      */
     void notifyBattery(uint8_t percentage);
 
-    uint16_t dataValHandle;
-    uint16_t batteryValHandle;
+    uint8_t lastBatteryPercent;
 
     /* NimBLE callbacks (static, required by C API) */
     static int gapEventHandler(struct ble_gap_event* event, void* arg);
