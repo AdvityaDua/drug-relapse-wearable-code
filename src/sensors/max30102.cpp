@@ -1,121 +1,109 @@
 #include "max30102.h"
-#include "algorithm.h"
 #include "driver/i2c.h"
 #include "config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+// DFRobot BloodOxygen_S module — MCU sits at 0x57 (same as raw MAX30102)
+// but uses its own register protocol, NOT the standard MAX30102 register map.
 #define MAX30102_ADDR 0x57
 static const char* TAG = "MAX30102";
 
 namespace MAX30102
 {
-    static esp_err_t write_reg(uint8_t reg, uint8_t data) {
-        uint8_t write_buf[2] = {reg, data};
-        return i2c_master_write_to_device((i2c_port_t)I2C_MASTER_NUM, MAX30102_ADDR, write_buf, sizeof(write_buf), pdMS_TO_TICKS(100));
+    // Write len bytes of data to a DFRobot register
+    static esp_err_t write_reg(uint8_t reg, const uint8_t* data, size_t len) {
+        uint8_t buf[len + 1];
+        buf[0] = reg;
+        for (size_t i = 0; i < len; i++) {
+            buf[i + 1] = data[i];
+        }
+        return i2c_master_write_to_device((i2c_port_t)I2C_MASTER_NUM, MAX30102_ADDR, buf, len + 1, pdMS_TO_TICKS(100));
     }
 
-    static esp_err_t read_reg(uint8_t reg, uint8_t *data) {
-        return i2c_master_write_read_device((i2c_port_t)I2C_MASTER_NUM, MAX30102_ADDR, &reg, 1, data, 1, pdMS_TO_TICKS(100));
+    // Read len bytes from a DFRobot register
+    static esp_err_t read_reg(uint8_t reg, uint8_t* data, size_t len) {
+        return i2c_master_write_read_device((i2c_port_t)I2C_MASTER_NUM, MAX30102_ADDR, &reg, 1, data, len, pdMS_TO_TICKS(200));
     }
 
     bool init() {
-        // Soft Reset
-        if (write_reg(0x09, 0x40) != ESP_OK) {
-            return false; // Sensor not responding
+        ESP_LOGI(TAG, "Initializing DFRobot BloodOxygen_S module at I2C 0x57...");
+
+        // Send sensorStartCollect command: write [0x00, 0x01] to register 0x20
+        // This tells the onboard MCU to power on the MAX30102 LED and start sampling
+        uint8_t startCmd[2] = {0x00, 0x01};
+        esp_err_t err = write_reg(0x20, startCmd, 2);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to send startCollect command: %s", esp_err_to_name(err));
+            return false;
         }
-        vTaskDelay(pdMS_TO_TICKS(100)); 
 
-        // FIFO configuration: sample average = 1 (0x00), rollover enabled, almost full = 15
-        write_reg(0x08, 0x0F); 
-
-        // Mode configuration: SpO2 mode (Red + IR)
-        write_reg(0x09, 0x03); 
-
-        // SpO2 configuration: ADC range=4096, Sample Rate=100Hz, LED Pulse Width=411us
-        write_reg(0x0A, 0x27); 
-
-        // LED Pulse Amplitudes (around 7mA)
-        write_reg(0x0C, 0x24); 
-        write_reg(0x0D, 0x24); 
+        ESP_LOGI(TAG, "Sent startCollect command. LED should turn ON now.");
         
-        // Clear FIFO pointers
-        write_reg(0x04, 0x00);
-        write_reg(0x05, 0x00);
-        write_reg(0x06, 0x00);
+        // Give the module time to start its internal sampling
+        vTaskDelay(pdMS_TO_TICKS(500));
 
         return true;
     }
 
+    void powerOff() {
+        // Send sensorEndCollect command: write [0x00, 0x02] to register 0x20
+        uint8_t stopCmd[2] = {0x00, 0x02};
+        write_reg(0x20, stopCmd, 2);
+        ESP_LOGI(TAG, "Sent endCollect command. LED should turn OFF.");
+    }
+
     MAX30102_Data readAndCalculate() {
         MAX30102_Data outData = {0, 0, 0, 0};
-        uint32_t irBuffer[100];
-        uint32_t redBuffer[100];
-        
-        ESP_LOGI(TAG, "Collecting 100 samples (~1 second of data)...");
-        
-        // Clear FIFO to start fresh reading
-        write_reg(0x04, 0x00);
-        write_reg(0x05, 0x00);
-        write_reg(0x06, 0x00);
 
-        int sampleCount = 0;
-        int timeoutCounter = 0; // Prevent infinite loop
-        uint8_t reg = 0x07; // FIFO Data register
-        uint8_t rx_buf[6];
+        // The DFRobot module's MCU handles all sampling and algorithm internally.
+        // We just need to wait a bit and then read the pre-calculated results.
+        // Wait ~2 seconds to let the module accumulate enough pulse data
+        vTaskDelay(pdMS_TO_TICKS(2000));
 
-        while (sampleCount < 100 && timeoutCounter < 200) {
-            uint8_t wr_ptr = 0, rd_ptr = 0;
-            read_reg(0x04, &wr_ptr);
-            read_reg(0x06, &rd_ptr);
-            
-            int samplesAvailable = wr_ptr - rd_ptr;
-            if (samplesAvailable < 0) samplesAvailable += 32; // Rollover handling
-
-            for (int i = 0; i < samplesAvailable && sampleCount < 100; i++) {
-                // Read 6 bytes from FIFO (3 Red, 3 IR)
-                if (i2c_master_write_read_device((i2c_port_t)I2C_MASTER_NUM, MAX30102_ADDR, &reg, 1, rx_buf, 6, pdMS_TO_TICKS(100)) == ESP_OK) {
-                    uint32_t red = ((uint32_t)rx_buf[0] << 16) | ((uint32_t)rx_buf[1] << 8) | rx_buf[2];
-                    uint32_t ir = ((uint32_t)rx_buf[3] << 16) | ((uint32_t)rx_buf[4] << 8) | rx_buf[5];
-                    
-                    // Data is left-justified, only lowest 18 bits are valid
-                    redBuffer[sampleCount] = red & 0x03FFFF;
-                    irBuffer[sampleCount] = ir & 0x03FFFF;
-                    sampleCount++;
-                } else {
-                    break;
-                }
-            }
-            // Sleep to let the FIFO fill (at 100Hz, 1 sample = 10ms)
-            vTaskDelay(pdMS_TO_TICKS(10)); 
-            timeoutCounter++;
-        }
+        // Read 8 bytes from register 0x0C — this contains SPO2 and Heart Rate
+        // Format (from DFRobot library):
+        //   rbuf[0] = SPO2 (uint8_t, 0 means invalid)
+        //   rbuf[1] = (unused/reserved)
+        //   rbuf[2..5] = Heartbeat (uint32_t big-endian, 0 means invalid)
+        //   rbuf[6..7] = (additional data)
+        uint8_t rbuf[8] = {0};
+        esp_err_t err = read_reg(0x0C, rbuf, 8);
         
-        if (timeoutCounter >= 200) {
-            ESP_LOGE(TAG, "Timed out waiting for data!");
-            return outData; // Return empty/invalid data
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to read HR/SpO2 data: %s", esp_err_to_name(err));
+            return outData;
         }
 
-        int32_t spo2;
-        int8_t validSPO2;
-        int32_t heartRate;
-        int8_t validHR;
-        
-        ESP_LOGI(TAG, "Calculating Heart Rate & SpO2 using Maxim Algorithm...");
-        maxim_heart_rate_and_oxygen_saturation(irBuffer, 100, redBuffer, &spo2, &validSPO2, &heartRate, &validHR);
-        
-        if (validHR || validSPO2) {
-            ESP_LOGI(TAG, "SUCCESS -> HR: %ld bpm, SpO2: %ld %%", heartRate, spo2);
+        int32_t spo2 = rbuf[0];
+        int32_t heartRate = ((uint32_t)rbuf[2] << 24) | ((uint32_t)rbuf[3] << 16) | 
+                            ((uint32_t)rbuf[4] << 8)  | ((uint32_t)rbuf[5]);
+
+        ESP_LOGI(TAG, "Raw data: SPO2=%ld, HR=%ld (bytes: %02X %02X %02X %02X %02X %02X %02X %02X)",
+                 spo2, heartRate, rbuf[0], rbuf[1], rbuf[2], rbuf[3], rbuf[4], rbuf[5], rbuf[6], rbuf[7]);
+
+        // The DFRobot module returns 0 for invalid readings (no finger detected)
+        if (spo2 > 0 && spo2 <= 100) {
+            outData.spo2 = spo2;
+            outData.validSPO2 = 1;
         } else {
-            ESP_LOGW(TAG, "FAILED -> Could not detect finger/pulse (HR: %ld, SpO2: %ld)", heartRate, spo2);
+            outData.validSPO2 = 0;
+            ESP_LOGW(TAG, "SpO2 invalid (no finger?)");
         }
 
-        outData.heartRate = heartRate;
-        outData.validHR = validHR;
-        outData.spo2 = spo2;
-        outData.validSPO2 = validSPO2;
-        
+        if (heartRate > 0 && heartRate < 300) {
+            outData.heartRate = heartRate;
+            outData.validHR = 1;
+        } else {
+            outData.validHR = 0;
+            ESP_LOGW(TAG, "Heart Rate invalid (no finger?)");
+        }
+
+        if (outData.validHR || outData.validSPO2) {
+            ESP_LOGI(TAG, "SUCCESS -> HR: %ld bpm, SpO2: %ld %%", outData.heartRate, outData.spo2);
+        }
+
         return outData;
     }
 }

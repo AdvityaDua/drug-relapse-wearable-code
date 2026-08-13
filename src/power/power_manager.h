@@ -15,6 +15,12 @@ public:
     // Initialization
     void begin();
 
+    // Button monitoring — spawns a background task that polls D2
+    void startButtonMonitor();
+
+    // Returns true if a long-press was detected and shutdown is requested
+    bool isShutdownRequested() const;
+
     // Sleep
     void enterDeepSleep();
 
@@ -22,10 +28,6 @@ public:
     void setSensorPower(bool enabled);
     void enableSensorPower();
     void disableSensorPower();
-
-    // Bus Low Enable
-    bool isBusLowEnabled();
-    bool shouldEnterDeepSleep();
 
     // Status
     PowerState getPowerState() const;
@@ -35,6 +37,9 @@ public:
 private:
     PowerState currentState;
     bool adcInitialized = false;
+    volatile bool shutdownRequested = false;
+
+    static void buttonMonitorTask(void* pvParameters);
 };
 
 #endif

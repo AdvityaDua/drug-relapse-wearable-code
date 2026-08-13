@@ -4,6 +4,7 @@
 #include "config.h"
 #include "power/power_manager.h"
 #include "sensors/sensor_manager.h"
+#include "sensors/max30102.h"
 #include "../storage/storage_manager.h"
 
 #include "esp_log.h"
@@ -68,7 +69,8 @@ StatusCode CommandManager::executeCommand(const CommandPacket &packet,
       return StatusCode::SUCCESS;
     }
     collecting = false;
-    ESP_LOGI(TAG, "Data collection stopped.");
+    MAX30102::powerOff();
+    ESP_LOGI(TAG, "Data collection stopped. PPG sensor turned off.");
     return StatusCode::SUCCESS;
 
   case Command::SYNC_DATA:

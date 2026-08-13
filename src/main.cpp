@@ -58,9 +58,28 @@ extern "C" void app_main(void) {
   power.begin();
 
   switch (power.getWakeupCause()) {
-  case ESP_SLEEP_WAKEUP_EXT1:
-    ESP_LOGI(TAG, "[BOOT] Wakeup from Jumper (Bus Low Enable)");
+  case ESP_SLEEP_WAKEUP_GPIO: {
+    ESP_LOGI(TAG, "[BOOT] Wakeup from Button — verifying long press...");
+
+    // The hardware wakes on any LOW edge. We need to confirm the
+    // user is holding the button for the full LONG_PRESS_DURATION_MS
+    // before actually booting. If they let go early, go back to sleep.
+    uint32_t held = 0;
+    while (gpio_get_level(PIN_BUTTON) == 0 && held < LONG_PRESS_DURATION_MS) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+      held += 50;
+    }
+
+    if (held < LONG_PRESS_DURATION_MS) {
+      ESP_LOGI(TAG,
+               "[BOOT] Button released too early (%lums) — back to sleep",
+               (unsigned long)held);
+      power.enterDeepSleep(); // goes back to deep sleep immediately
+    }
+
+    ESP_LOGI(TAG, "[BOOT] Long press confirmed — booting up");
     break;
+  }
 
   case ESP_SLEEP_WAKEUP_TIMER:
     ESP_LOGI(TAG, "[BOOT] Wakeup from Timer");
@@ -75,16 +94,18 @@ extern "C" void app_main(void) {
     break;
   }
 
-  if (power.shouldEnterDeepSleep()) {
-    ESP_LOGI(TAG, "[POWER] Bus Low Disabled");
-    ESP_LOGI(TAG, "[POWER] Going to Deep Sleep");
+  ESP_LOGI(TAG, "[POWER] Device Active");
 
-    vTaskDelay(pdMS_TO_TICKS(200));
-
-    power.enterDeepSleep();
+  // Power-on LED pattern: 3 quick flashes then solid ON
+  gpio_set_direction(PIN_LED, GPIO_MODE_OUTPUT);
+  gpio_set_level(PIN_LED, 1); // LED OFF (active-low)
+  for (int i = 0; i < 3; i++) {
+    gpio_set_level(PIN_LED, 0); // LED ON
+    vTaskDelay(pdMS_TO_TICKS(80));
+    gpio_set_level(PIN_LED, 1); // LED OFF
+    vTaskDelay(pdMS_TO_TICKS(80));
   }
-
-  ESP_LOGI(TAG, "[POWER] Device Enabled");
+  gpio_set_level(PIN_LED, 0); // LED solid ON — stays on while device is active
 
   ble.begin();
   commandManager.begin();
@@ -96,6 +117,9 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Storage Manager initialized successfully.");
   }
 
+  // Start the button monitor (polls D2 for long-press to trigger deep sleep)
+  power.startButtonMonitor();
+
   ESP_LOGI(TAG, "[SYSTEM] Ready");
 
   // Spawn the background data collection task
@@ -105,5 +129,11 @@ extern "C" void app_main(void) {
   while (true) {
     ble.waitForCommand(pdMS_TO_TICKS(1000));
     commandManager.processPending(ble, power);
+
+    // Check if the button monitor detected a long-press
+    if (power.isShutdownRequested()) {
+      ESP_LOGI(TAG, "[POWER] Shutdown requested via button long-press");
+      power.enterDeepSleep();
+    }
   }
 }

@@ -5,18 +5,21 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define BNO055_ADDR 0x28
+#define BNO055_ADDR_LOW  0x28  // COM3/ADR pin = LOW or GND
+#define BNO055_ADDR_HIGH 0x29  // COM3/ADR pin = HIGH or VIN
+
+static uint8_t bno055_addr = BNO055_ADDR_LOW; // resolved at init time
 static const char* TAG = "BNO055";
 
 namespace BNO055
 {
     static esp_err_t write_reg(uint8_t reg, uint8_t data) {
         uint8_t write_buf[2] = {reg, data};
-        return i2c_master_write_to_device((i2c_port_t)I2C_MASTER_NUM, BNO055_ADDR, write_buf, 2, pdMS_TO_TICKS(100));
+        return i2c_master_write_to_device((i2c_port_t)I2C_MASTER_NUM, bno055_addr, write_buf, 2, pdMS_TO_TICKS(100));
     }
 
     static esp_err_t read_len(uint8_t reg, uint8_t *data, size_t len) {
-        return i2c_master_write_read_device((i2c_port_t)I2C_MASTER_NUM, BNO055_ADDR, &reg, 1, data, len, pdMS_TO_TICKS(100));
+        return i2c_master_write_read_device((i2c_port_t)I2C_MASTER_NUM, bno055_addr, &reg, 1, data, len, pdMS_TO_TICKS(100));
     }
 
     static esp_err_t read_reg(uint8_t reg, uint8_t *data) {
@@ -26,16 +29,25 @@ namespace BNO055
     bool init() {
         uint8_t id = 0;
         
-        // Wait a tiny bit for the sensor to fully boot after power up
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // BNO055 needs up to 650ms after power-on to boot (datasheet POR time).
+        // Give it a generous margin in case sensor_manager's powerOn() delay
+        // was consumed by other sensor inits.
+        vTaskDelay(pdMS_TO_TICKS(700));
         
-        if (read_reg(0x00, &id) != ESP_OK) { // BNO055_REG_CHIP_ID
-            ESP_LOGE(TAG, "Failed to communicate with BNO055 over I2C");
-            return false;
+        // Try both possible I2C addresses
+        bool found = false;
+        const uint8_t addrs[] = {BNO055_ADDR_LOW, BNO055_ADDR_HIGH};
+        for (uint8_t addr : addrs) {
+            bno055_addr = addr;
+            if (read_reg(0x00, &id) == ESP_OK && id == 0xA0) {
+                ESP_LOGI(TAG, "BNO055 found at address 0x%02X", addr);
+                found = true;
+                break;
+            }
         }
-        
-        if (id != 0xA0) {
-            ESP_LOGE(TAG, "BNO055 Chip ID mismatch! Expected 0xA0, got 0x%02X", id);
+
+        if (!found) {
+            ESP_LOGE(TAG, "BNO055 not found at 0x28 or 0x29 (last chip ID read: 0x%02X)", id);
             return false;
         }
 
@@ -171,7 +183,7 @@ namespace BNO055
         write_buf[0] = 0x55;
         memcpy(&write_buf[1], profileData, 22);
 
-        esp_err_t err = i2c_master_write_to_device((i2c_port_t)I2C_MASTER_NUM, BNO055_ADDR, write_buf, sizeof(write_buf), pdMS_TO_TICKS(100));
+        esp_err_t err = i2c_master_write_to_device((i2c_port_t)I2C_MASTER_NUM, bno055_addr, write_buf, sizeof(write_buf), pdMS_TO_TICKS(100));
         
         // Restore NDOF mode
         write_reg(0x3D, 0x0C);

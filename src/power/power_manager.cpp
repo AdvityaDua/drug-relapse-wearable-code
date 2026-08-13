@@ -17,14 +17,15 @@ PowerManager::PowerManager()
 
 void PowerManager::begin()
 {
-    // Bus Low Enable Jumper
-    gpio_config_t bus_low_cfg = {};
-    bus_low_cfg.pin_bit_mask = (1ULL << PIN_BUS_LOW);
-    bus_low_cfg.mode = GPIO_MODE_INPUT;
-    bus_low_cfg.pull_up_en = GPIO_PULLUP_DISABLE;
-    bus_low_cfg.pull_down_en = GPIO_PULLDOWN_ENABLE;
-    bus_low_cfg.intr_type = GPIO_INTR_DISABLE;
-    gpio_config(&bus_low_cfg);
+    // Power Button (D2) — input with internal pull-up
+    // Button connects D2 to GND, so idle = HIGH, pressed = LOW
+    gpio_config_t btn_cfg = {};
+    btn_cfg.pin_bit_mask = (1ULL << PIN_BUTTON);
+    btn_cfg.mode = GPIO_MODE_INPUT;
+    btn_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    btn_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    btn_cfg.intr_type = GPIO_INTR_DISABLE;
+    gpio_config(&btn_cfg);
 
     // Sensor Power
     gpio_config_t sensor_pwr_cfg = {};
@@ -47,6 +48,63 @@ void PowerManager::begin()
     currentState = PowerState::ACTIVE;
 }
 
+void PowerManager::startButtonMonitor()
+{
+    xTaskCreate(buttonMonitorTask, "ButtonMonitor", 2048, this, 1, NULL);
+    ESP_LOGI(TAG, "Button monitor started on D2 (GPIO%d)", PIN_BUTTON);
+}
+
+void PowerManager::buttonMonitorTask(void* pvParameters)
+{
+    PowerManager* self = static_cast<PowerManager*>(pvParameters);
+    
+    // Wait for button to be released at boot (in case user is still holding it from wakeup)
+    while (gpio_get_level(PIN_BUTTON) == 0) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    vTaskDelay(pdMS_TO_TICKS(500)); // Debounce settle after boot
+
+    ESP_LOGI(TAG, "Button monitor ready. Long-press (%lums) to shutdown.", (unsigned long)LONG_PRESS_DURATION_MS);
+
+    while (true) {
+        // Wait for button press (LOW)
+        if (gpio_get_level(PIN_BUTTON) == 0) {
+            // Button is pressed — start timing
+            uint32_t pressStart = xTaskGetTickCount();
+            bool longPressDetected = false;
+
+            // Keep checking while button is held
+            while (gpio_get_level(PIN_BUTTON) == 0) {
+                uint32_t elapsed = (xTaskGetTickCount() - pressStart) * portTICK_PERIOD_MS;
+                
+                if (elapsed >= LONG_PRESS_DURATION_MS) {
+                    longPressDetected = true;
+                    break;
+                }
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
+
+            if (longPressDetected) {
+                ESP_LOGI(TAG, "Long press detected! Requesting shutdown...");
+                self->shutdownRequested = true;
+                
+                // Wait for button release before allowing sleep
+                while (gpio_get_level(PIN_BUTTON) == 0) {
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
+                vTaskDelay(pdMS_TO_TICKS(100)); // Debounce
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50)); // Poll interval
+    }
+}
+
+bool PowerManager::isShutdownRequested() const
+{
+    return shutdownRequested;
+}
+
 void PowerManager::setSensorPower(bool enabled)
 {
     gpio_set_level(PIN_SENSOR_POWER, enabled ? 1 : 0);
@@ -60,18 +118,6 @@ void PowerManager::enableSensorPower()
 void PowerManager::disableSensorPower()
 {
     setSensorPower(false);
-}
-
-bool PowerManager::isBusLowEnabled()
-{
-    return gpio_get_level(PIN_BUS_LOW) == 0;
-}
-
-bool PowerManager::shouldEnterDeepSleep()
-{
-    // Jumper removed -> GPIO HIGH
-    // Device should sleep
-    return !isBusLowEnabled();
 }
 
 PowerState PowerManager::getPowerState() const
@@ -99,8 +145,11 @@ void PowerManager::enterDeepSleep()
     // Clear previous wake sources
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 
-    // Wake when jumper is removed (GPIO goes LOW via pulldown)
-    esp_sleep_enable_ext1_wakeup(1ULL << PIN_BUS_LOW, ESP_EXT1_WAKEUP_ANY_LOW);
+    // Wake when button is pressed (D2 goes LOW via button-to-GND).
+    // This API automatically configures internal pull-up/pull-down
+    // resistors during deep sleep, so GPIO2 won't float LOW.
+    esp_sleep_enable_gpio_wakeup_on_hp_periph_powerdown(
+        1ULL << PIN_BUTTON, ESP_GPIO_WAKEUP_GPIO_LOW);
 
     // Blink LED 4 times to indicate shutdown (LED is active-low: LOW=ON, HIGH=OFF)
     ESP_LOGI(TAG, "Blinking LED 4 times before shutdown...");
@@ -113,11 +162,13 @@ void PowerManager::enterDeepSleep()
         vTaskDelay(pdMS_TO_TICKS(150));
     }
 
-    ESP_LOGI(TAG, "Entering Deep Sleep");
+    ESP_LOGI(TAG, "Entering Deep Sleep — press button to wake");
 
     fflush(stdout);
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+    // Extra settle time so any button bounce or noise dissipates
+    // before the wakeup source becomes active
+    vTaskDelay(pdMS_TO_TICKS(500));
 
     esp_deep_sleep_start();
 }

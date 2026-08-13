@@ -17,6 +17,10 @@ namespace SensorManager
 {
     void powerOn()
     {
+        static bool isPoweredOn = false;
+        if (isPoweredOn) return;
+        isPoweredOn = true;
+
         ESP_LOGI(TAG, "Powering ON sensors via GPIO...");
         gpio_set_direction((gpio_num_t)PIN_SENSOR_POWER, GPIO_MODE_OUTPUT);
         gpio_set_level((gpio_num_t)PIN_SENSOR_POWER, 1);
@@ -46,6 +50,25 @@ namespace SensorManager
         }
 
         ESP_LOGI(TAG, "I2C Master initialized on SDA=%d, SCL=%d", I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO);
+
+        // --- I2C Bus Scan (debug) ---
+        ESP_LOGI(TAG, "Scanning I2C bus for connected devices...");
+        int devicesFound = 0;
+        for (uint8_t addr = 0x03; addr <= 0x77; addr++) {
+            // Send a zero-length write to probe the address
+            i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+            i2c_master_start(cmd);
+            i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+            i2c_master_stop(cmd);
+            esp_err_t probe = i2c_master_cmd_begin((i2c_port_t)I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(50));
+            i2c_cmd_link_delete(cmd);
+
+            if (probe == ESP_OK) {
+                ESP_LOGI(TAG, "  -> Device found at 0x%02X", addr);
+                devicesFound++;
+            }
+        }
+        ESP_LOGI(TAG, "I2C scan complete: %d device(s) found.", devicesFound);
 
         // Initialize sensors
         if (!MAX30102::init()) {
@@ -111,10 +134,9 @@ namespace SensorManager
         ESP_LOGI(TAG, "--- SensorManager::takeReading() Started ---");
         powerOn();
 
-        // 1. Read MAX30102 (takes ~1 second) - Commented out to avoid timeout for now
-        // MAX30102::MAX30102_Data maxData = MAX30102::readAndCalculate();
+        // 1. Read MAX30102 (takes ~1 second)
+        MAX30102::MAX30102_Data maxData = MAX30102::readAndCalculate();
         // vTaskDelay(pdMS_TO_TICKS(100)); // Simulate time taken
-        MAX30102::MAX30102_Data maxData = {0, 0, 0, 0};
 
         ESP_LOGI(TAG, "┌── MAX30102 (Pulse Oximeter) ──────────────");
         ESP_LOGI(TAG, "│ Heart Rate : %ld bpm (valid: %s)", maxData.heartRate, maxData.validHR ? "YES" : "NO");
@@ -193,7 +215,7 @@ namespace SensorManager
             ESP_LOGI(TAG, "Generated CSV Data:\n%s", outBuffer);
         }
 
-        powerOff();
+        // powerOff(); // User requested to keep sensors powered on
         xSemaphoreGive(sensorMutex);
         
         return true;
