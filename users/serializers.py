@@ -123,3 +123,49 @@ class TokenPairSerializer(serializers.Serializer):
             'access': str(refresh.access_token),
             'refresh': str(refresh),
         }
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    """
+    Accepts email to initiate password reset.
+    """
+
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        try:
+            User.objects.get(email=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("No account found with this email.")
+        return value
+
+
+class VerifyOTPSerializer(serializers.Serializer):
+    """
+    Verifies that the OTP code is valid for the given email.
+    """
+
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=6, min_length=6)
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    """
+    Resets the password using a verified OTP.
+    """
+
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=6, min_length=6)
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        validators=[validate_password],
+    )
+    new_password_confirm = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError(
+                {"new_password_confirm": "Passwords do not match."}
+            )
+        return attrs

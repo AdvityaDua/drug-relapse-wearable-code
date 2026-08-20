@@ -1,4 +1,5 @@
 from django.contrib.auth.models import AbstractUser
+from django.conf import settings
 from django.db import models
 
 
@@ -33,3 +34,29 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+
+
+class PasswordResetOTP(models.Model):
+    """
+    Stores a one-time password (OTP) code for password reset.
+    OTPs expire after 10 minutes and can only be used once.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='password_reset_otps',
+    )
+    code = models.CharField(
+        max_length=6,
+        help_text="6-digit OTP code",
+    )
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'password_reset_otps'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"OTP(user={self.user_id}, used={self.is_used})"

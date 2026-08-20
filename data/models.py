@@ -2,17 +2,54 @@ from django.conf import settings
 from django.db import models
 
 
-class SensorReading(models.Model):
+class DataCollectionDay(models.Model):
     """
-    Single timestamped sensor reading from the wearable device.
-    Contains all 35 sensor fields from the data collection pipeline.
-    Composite unique constraint on (user, time) ensures idempotent syncs.
+    Represents a single calendar day of data collection for a user.
+    Created by the mobile app before syncing readings for that day.
+    Unique constraint on (user, date) ensures one entry per user per day.
     """
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='sensor_readings',
+        related_name='collection_days',
+    )
+    date = models.DateField(
+        help_text="The calendar date of data collection (YYYY-MM-DD)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'data_collection_days'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'date'],
+                name='unique_user_collection_day',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'date'], name='idx_user_date'),
+        ]
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"CollectionDay(user={self.user_id}, date={self.date})"
+
+
+class SensorReading(models.Model):
+    """
+    Single timestamped sensor reading from the wearable device.
+    Contains all 35 sensor fields from the data collection pipeline.
+    Linked to a DataCollectionDay; the user is derived via collection_day.user.
+    Composite unique constraint on (collection_day, time) ensures idempotent syncs.
+    """
+
+    collection_day = models.ForeignKey(
+        DataCollectionDay,
+        on_delete=models.CASCADE,
+        related_name='readings',
+        help_text="The data collection day this reading belongs to",
     )
 
     # ── Timestamp ──────────────────────────────────────────────────────
@@ -182,18 +219,18 @@ class SensorReading(models.Model):
 
     class Meta:
         db_table = 'sensor_readings'
-        # Prevent duplicate readings for the same user at the same timestamp
+        # Prevent duplicate readings for the same collection day at the same timestamp
         constraints = [
             models.UniqueConstraint(
-                fields=['user', 'time'],
-                name='unique_user_reading_per_timestamp',
+                fields=['collection_day', 'time'],
+                name='unique_reading_per_day_timestamp',
             ),
         ]
         indexes = [
-            models.Index(fields=['user', 'time'], name='idx_user_time'),
+            models.Index(fields=['collection_day', 'time'], name='idx_collection_day_time'),
             models.Index(fields=['time'], name='idx_time'),
         ]
         ordering = ['-time']
 
     def __str__(self):
-        return f"Reading(user={self.user_id}, time={self.time})"
+        return f"Reading(day={self.collection_day_id}, time={self.time})"
