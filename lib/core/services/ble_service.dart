@@ -227,14 +227,15 @@ class BleService {
         // Request pairing/bonding on Android if needed
         if (Platform.isAndroid) {
           try {
-            await target.createBond();
+            // await target.createBond();
           } catch (_) {}
         }
 
         await _fetchRealBattery();
         await _subscribeToRealData();
         return true;
-      } catch (_) {
+      } catch (e) {
+        print("[BLE_SYNC] ❌ Connection or setup failed: $e");
         _connected = false;
         _connectionStateController.add(false);
         return false;
@@ -279,8 +280,8 @@ class BleService {
       if (_writeCharacteristic != null) {
         try {
           await _writeCharacteristic!.write(utf8.encode(text));
-        } catch (_) {
-          // Ignore command failures if device disconnects suddenly
+        } catch (e) {
+          print("[BLE_SYNC] ❌ writeString failed: $e");
         }
       }
     }
@@ -328,8 +329,8 @@ class BleService {
         try {
           // Send command as a raw byte. The ESP32 expects `buf[0]` to be the command enum value.
           await _writeCharacteristic!.write([command]);
-        } catch (_) {
-          // Ignore command failures if device disconnects suddenly
+        } catch (e) {
+          print("[BLE_SYNC] ❌ writeCommand failed: $e");
         }
       }
     }
@@ -374,37 +375,52 @@ class BleService {
     if (_bleDevice == null) return;
     try {
       final services = await _bleDevice!.discoverServices();
-      print("========== DISCOVERED BLE SERVICES ==========");
+      print("[BLE_SYNC] ========== DISCOVERED BLE SERVICES ==========");
       for (final s in services) {
-        print("Service: ${s.uuid}");
+        print("[BLE_SYNC] Service: ${s.uuid}");
         for (final c in s.characteristics) {
-          print("  -> Characteristic: ${c.uuid} (Write: ${c.properties.write}, Notify: ${c.properties.notify})");
+          print("[BLE_SYNC]   -> Characteristic: ${c.uuid} (Write: ${c.properties.write}, Notify: ${c.properties.notify})");
         }
       }
-      print("=============================================");
+      print("[BLE_SYNC] =============================================");
+
+      bool foundWriteChar = false;
+      bool foundNotifyChar = false;
 
       for (final s in services) {
         if (s.uuid.toString().toLowerCase() == BleUuids.espServiceUuid.toLowerCase()) {
+          print("[BLE_SYNC] Found custom ESP32 service: ${s.uuid}");
           for (final c in s.characteristics) {
             final uuid = c.uuid.toString().toLowerCase();
             
             // RX characteristic (Phone writes commands here)
             if (uuid == BleUuids.espRxCharacteristicUuid.toLowerCase()) {
               _writeCharacteristic = c;
+              foundWriteChar = true;
+              print("[BLE_SYNC] ✅ Found WRITE characteristic: ${c.uuid}");
             }
             
             // TX characteristic (ESP32 sends data here)
             if (uuid == BleUuids.espTxCharacteristicUuid.toLowerCase()) {
-              await c.setNotifyValue(true);
+              try {
+                await c.setNotifyValue(true);
+                foundNotifyChar = true;
+                print("[BLE_SYNC] ✅ Subscribed to NOTIFY characteristic: ${c.uuid}");
+              } catch (e) {
+                print("[BLE_SYNC] ❌ Failed to subscribe to NOTIFY characteristic: ${c.uuid}, error: $e");
+              }
               c.onValueReceived.listen((value) {
                 if (value.isNotEmpty) {
                   // Convert byte stream to string
                   final str = String.fromCharCodes(value);
+                  print("[BLE_SYNC] 📥 Received ${value.length} bytes: ${str.length > 80 ? '${str.substring(0, 80)}...' : str}");
                   
                   // If it's a JSON string, route to Live Data. Otherwise treat as CSV chunk.
                   if (str.trim().startsWith('{')) {
+                    print("[BLE_SYNC]   → Routed to liveDataStream");
                     _liveDataController.add(str);
                   } else {
+                    print("[BLE_SYNC]   → Routed to csvDataStream");
                     _csvDataController.add(str);
                   }
                 }
@@ -412,6 +428,13 @@ class BleService {
             }
           }
         }
+      }
+
+      if (!foundWriteChar) {
+        print("[BLE_SYNC] ⚠️ Custom ESP32 write characteristic NOT found, searching fallbacks...");
+      }
+      if (!foundNotifyChar) {
+        print("[BLE_SYNC] ⚠️ Custom ESP32 notify characteristic NOT found, searching fallbacks...");
       }
 
       // Fallback: If we didn't find the specific ESP32 UART write characteristic,
@@ -422,7 +445,7 @@ class BleService {
             // Ignore standard 16-bit GATT UUIDs (which often start with 0000xxxx) to avoid writing to system features like 2B29
             bool isCustomUuid = c.uuid.toString().length > 8 && !c.uuid.toString().startsWith("0000");
             if (isCustomUuid && (c.properties.write || c.properties.writeWithoutResponse)) {
-              print("WARNING: Falling back to writable characteristic ${c.uuid}");
+              print("[BLE_SYNC] ⚠️ Falling back to writable characteristic ${c.uuid}");
               _writeCharacteristic = c;
               break;
             }
@@ -434,26 +457,25 @@ class BleService {
       // Fallback: If we don't have a notification subscription active but we found a fallback TX, 
       // let's listen to the first characteristic that supports notify/indicate
       // and whose service is NOT the standard battery service (since we handle battery separately)
-      bool hasNotifySubscribed = false;
-      for (final s in services) {
-        if (s.uuid.toString().toLowerCase() == BleUuids.batteryServiceUuid.toLowerCase()) continue;
-        for (final c in s.characteristics) {
-          if (c.uuid.toString().toLowerCase() == BleUuids.espTxCharacteristicUuid.toLowerCase()) {
-            hasNotifySubscribed = true; // custom ESP TX is already subscribed
-            break;
-          }
-        }
-      }
+      bool hasNotifySubscribed = foundNotifyChar;
 
       if (!hasNotifySubscribed) {
+        print("[BLE_SYNC] ⚠️ No notify subscription yet, searching for fallback notify characteristic...");
         for (final s in services) {
           if (s.uuid.toString().toLowerCase() == BleUuids.batteryServiceUuid.toLowerCase()) continue;
           for (final c in s.characteristics) {
             if (c.properties.notify || c.properties.indicate) {
-              await c.setNotifyValue(true);
+              try {
+                await c.setNotifyValue(true);
+                print("[BLE_SYNC] ✅ Fallback: subscribed to notify characteristic ${c.uuid}");
+              } catch (e) {
+                print("[BLE_SYNC] ❌ Fallback: failed to subscribe to notify characteristic ${c.uuid}, error: $e");
+                continue;
+              }
               c.onValueReceived.listen((value) {
                 if (value.isNotEmpty) {
                   final str = String.fromCharCodes(value);
+                  print("[BLE_SYNC] 📥 (fallback) Received ${value.length} bytes: ${str.length > 80 ? '${str.substring(0, 80)}...' : str}");
                   if (str.trim().startsWith('{')) {
                     _liveDataController.add(str);
                   } else {
@@ -468,8 +490,14 @@ class BleService {
           if (hasNotifySubscribed) break;
         }
       }
-    } catch (_) {
-      // Failed to discover services
+
+      if (!hasNotifySubscribed) {
+        print("[BLE_SYNC] ❌ CRITICAL: No notify characteristic found at all! Data sync will NOT work.");
+      }
+
+      print("[BLE_SYNC] Setup complete. Write: ${_writeCharacteristic != null ? '✅' : '❌'}, Notify: ${hasNotifySubscribed ? '✅' : '❌'}");
+    } catch (e) {
+      print("[BLE_SYNC] ❌ Failed to discover/subscribe services: $e");
     }
   }
 }

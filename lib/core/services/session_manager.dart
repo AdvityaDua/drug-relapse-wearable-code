@@ -84,6 +84,7 @@ class SessionManager extends Notifier<SessionState> {
 
   Future<bool> synchronizeData({bool silent = false}) async {
     if (currentPatient == null || sessionId == null) {
+      print("[SYNC] synchronizeData() aborted: patient=${currentPatient?.id}, session=$sessionId");
       return false;
     }
 
@@ -102,37 +103,69 @@ class SessionManager extends Notifier<SessionState> {
     final buffer = StringBuffer();
     Timer? timeoutTimer;
     StreamSubscription<String>? sub;
+    int chunkCount = 0;
+
+    void finishSync(String reason) {
+      if (!completer.isCompleted) {
+        // Strip the END_SYNC sentinel before completing
+        String data = buffer.toString();
+        if (data.contains('END_SYNC')) {
+          data = data.replaceAll('END_SYNC\n', '').replaceAll('END_SYNC', '');
+        }
+        print("[SYNC] Completing sync ($reason). Chunks received: $chunkCount, data length: ${data.length}");
+        sub?.cancel();
+        completer.complete(data);
+      }
+    }
 
     void resetTimeout() {
       timeoutTimer?.cancel();
       timeoutTimer = Timer(const Duration(milliseconds: 1500), () {
-        sub?.cancel();
-        if (!completer.isCompleted) {
-          completer.complete(buffer.toString());
-        }
+        finishSync('inactivity timeout 1.5s');
       });
     }
 
     try {
+      print("[SYNC] Starting synchronizeData() for patient=${currentPatient!.id}, session=$sessionId");
+
       // Setup listener on csvDataStream to accumulate chunked BLE data
       sub = bleService.csvDataStream.listen((chunk) {
+        chunkCount++;
+        print("[SYNC] 📦 Chunk #$chunkCount received (${chunk.length} chars)");
+        
+        // Check for END_SYNC sentinel
+        if (chunk.contains('END_SYNC')) {
+          // Add only the data before the sentinel
+          final sentinelIndex = chunk.indexOf('END_SYNC');
+          if (sentinelIndex > 0) {
+            buffer.write(chunk.substring(0, sentinelIndex));
+          }
+          timeoutTimer?.cancel();
+          finishSync('END_SYNC sentinel received');
+          return;
+        }
+        
         buffer.write(chunk);
         resetTimeout();
       });
 
-      // Start initial timeout timer
-      timeoutTimer = Timer(const Duration(seconds: 3), () {
-        sub?.cancel();
-        if (!completer.isCompleted) {
-          completer.complete(buffer.toString());
-        }
+      // Start initial timeout timer (5 seconds to give wearable time to process)
+      timeoutTimer = Timer(const Duration(seconds: 5), () {
+        finishSync('initial timeout 5s - no data received');
       });
 
       // 1. Send the 0x03 (Sync Data) command to the hardware.
+      print("[SYNC] Sending SYNC_DATA command (0x03)...");
       await bleService.writeCommand(BleCommands.syncData);
+      print("[SYNC] SYNC_DATA command sent, waiting for data...");
 
       // 2. Read only the new data (accumulate it from stream)
       final rawCsvData = await completer.future;
+
+      print("[SYNC] Raw CSV data received: ${rawCsvData.length} chars, ${rawCsvData.isEmpty ? 'EMPTY' : '${rawCsvData.split('\n').length} lines'}");
+      if (rawCsvData.isNotEmpty) {
+        print("[SYNC] First 200 chars: ${rawCsvData.length > 200 ? rawCsvData.substring(0, 200) : rawCsvData}");
+      }
 
       // 3. Append the new data to the existing CSV file, and
       // 4. Verify that the append operation completed successfully.
@@ -143,11 +176,14 @@ class SessionManager extends Notifier<SessionState> {
       );
 
       if (writeSucceeded) {
+        print("[SYNC] ✅ Sync completed successfully.");
         return true;
       } else {
-        throw Exception("CSV write verification failed: File size did not increase.");
+        print("[SYNC] ⚠️ Sync completed but no new data was received from wearable.");
+        return false;
       }
     } catch (e) {
+      print("[SYNC] ❌ Sync error: $e");
       rethrow;
     } finally {
       timeoutTimer?.cancel();

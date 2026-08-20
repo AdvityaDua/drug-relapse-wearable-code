@@ -244,12 +244,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           final updatedPatient = ref.read(patientProvider);
                           if (updatedPatient != null) {
                             sessionManager.setPatient(updatedPatient);
-                            sessionManager.startSession();
+                            await sessionManager.startSession();
                             bleService.writeCommand(BleCommands.startCollection);
                           }
                         } else {
                           sessionManager.setPatient(patient);
-                          sessionManager.startSession();
+                          await sessionManager.startSession();
                           bleService.writeCommand(BleCommands.startCollection);
                         }
                       }

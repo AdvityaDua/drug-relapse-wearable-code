@@ -38,9 +38,11 @@ class CsvController extends Notifier<List<List<dynamic>>> {
 
   Future<bool> appendAndVerifyData(String patientId, String sessionId, String rawCsvData) async {
     if (rawCsvData.trim().isEmpty) {
-      // Nothing to write, treat as successful sync of 0 rows
-      return true;
+      // No data received from wearable — report failure so the UI can notify the user
+      print("[CSV] appendAndVerifyData: rawCsvData is empty, returning false.");
+      return false;
     }
+    print("[CSV] appendAndVerifyData: received ${rawCsvData.length} chars of CSV data.");
 
     final file = await getSessionFile(patientId, sessionId);
     final sizeBefore = await file.exists() ? await file.length() : 0;
