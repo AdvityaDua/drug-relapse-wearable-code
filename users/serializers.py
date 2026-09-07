@@ -31,7 +31,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             'first_name': {'required': False},
             'last_name': {'required': False},
             'device_id': {'required': False},
-            'date_of_birth': {'required': False},
         }
 
     def validate(self, attrs):
@@ -103,9 +102,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name',
-            'device_id', 'date_of_birth', 'created_at', 'updated_at',
+            'device_id', 'date_of_birth', 'profile_image', 'is_verified',
+            'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'email', 'username', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'email', 'username', 'is_verified', 'created_at', 'updated_at']
 
 
 class TokenPairSerializer(serializers.Serializer):

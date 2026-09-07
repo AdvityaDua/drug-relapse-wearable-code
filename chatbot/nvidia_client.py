@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 # NVIDIA NIM API — OpenAI-compatible
 NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1'
-NVIDIA_MODEL = 'meta/llama-3.1-8b-instruct'
+NVIDIA_MODEL = 'mistralai/mistral-large-2-instruct'
 
 SYSTEM_PROMPT = (
     "You are a compassionate and knowledgeable health & wellness assistant "
@@ -23,7 +23,8 @@ SYSTEM_PROMPT = (
     "elevated risk and gently suggest coping strategies or professional help.\n"
     "- Never provide medical diagnoses or prescribe medications.\n"
     "- Always encourage users to consult healthcare professionals for medical concerns.\n"
-    "- Keep responses concise, warm, and actionable.\n\n"
+    "- Keep responses concise, warm, and actionable.\n"
+    "- CRITICAL: If you do not know the answer or lack sufficient information, explicitly state that you do not know. Do not hallucinate, guess, or make up information under any circumstances. Base all responses strictly on provided data or established factual wellness principles.\n\n"
     "If the user asks about something outside health, wellness, or recovery support, "
     "you may respond briefly but gently steer the conversation back to their wellbeing."
 )

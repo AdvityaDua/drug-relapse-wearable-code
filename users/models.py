@@ -17,9 +17,17 @@ class User(AbstractUser):
         help_text="Unique identifier of the user's wearable device",
     )
     date_of_birth = models.DateField(
+        help_text="Used for age-correlated ML analysis",
+        null=True, blank=True,
+    )
+    profile_image = models.URLField(
         blank=True,
         null=True,
-        help_text="Used for age-correlated ML analysis",
+        help_text="URL to profile image",
+    )
+    is_verified = models.BooleanField(
+        default=False,
+        help_text="Is account verified",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
