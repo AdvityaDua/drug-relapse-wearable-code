@@ -82,11 +82,11 @@ class ChatView(APIView):
         # Prepend system prompt
         api_messages = [{'role': 'system', 'content': SYSTEM_PROMPT}] + history
 
-        # Call NVIDIA API
+        # Call vLLM API
         try:
             reply = get_chat_completion(api_messages)
         except Exception as e:
-            logger.error(f"NVIDIA API error: {e}")
+            logger.error(f"LLM API error: {e}")
             return Response(
                 {'message': 'Chatbot is temporarily unavailable. Please try again later.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
