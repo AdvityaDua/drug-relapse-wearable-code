@@ -3,7 +3,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "config.h"
+#if USE_WIFI
+#include "wifi/wifi_manager.h"
+#else
 #include "ble/ble_manager.h"
+#endif
 #include "commands/command_manager.h"
 #include "power/power_manager.h"
 #include "sensors/sensor_manager.h"
@@ -12,7 +17,7 @@
 static const char *TAG = "MAIN";
 
 PowerManager power;
-BLEManager ble;
+TransportManager transport;
 CommandManager commandManager;
 
 // Background task that runs every X milliseconds
@@ -46,7 +51,7 @@ extern "C" void app_main(void) {
   ESP_LOGI(TAG, " Health Wearable Firmware");
   ESP_LOGI(TAG, "==================================");
 
-  // Initialize NVS (Required for BLE Bonding/Security)
+  // Initialize NVS (Required for WiFi)
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
       ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -107,7 +112,7 @@ extern "C" void app_main(void) {
   }
   gpio_set_level(PIN_LED, 0); // LED solid ON — stays on while device is active
 
-  ble.begin();
+  transport.begin();
   commandManager.begin();
 
   // Initialize Storage (LittleFS)
@@ -125,10 +130,21 @@ extern "C" void app_main(void) {
   // Spawn the background data collection task
   xTaskCreate(dataCollectionTask, "DataCollection", 4096, NULL, 5, NULL);
 
+  uint32_t lastBatteryUpdate = 0;
+
   /* Main loop — blocks on semaphore, allows light sleep between commands */
   while (true) {
-    ble.waitForCommand(pdMS_TO_TICKS(1000));
-    commandManager.processPending(ble, power);
+    transport.waitForCommand(pdMS_TO_TICKS(1000));
+    commandManager.processPending(transport, power);
+
+    if (transport.isConnected()) {
+      uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+      if (now - lastBatteryUpdate >= 5000) { // Update battery every 5 seconds
+        uint8_t batteryPct = power.getBatteryPercentage();
+        transport.notifyBattery(batteryPct);
+        lastBatteryUpdate = now;
+      }
+    }
 
     // Check if the button monitor detected a long-press
     if (power.isShutdownRequested()) {

@@ -7,7 +7,16 @@
 #include "commands.h"
 #include "types.h"
 
+#include "config.h"
+
+#if USE_WIFI
+class WiFiManager;
+typedef WiFiManager TransportManager;
+#else
 class BLEManager;
+typedef BLEManager TransportManager;
+#endif
+
 class PowerManager;
 
 class CommandManager
@@ -17,14 +26,14 @@ public:
 
     void begin();
 
-    void processPending(BLEManager& ble, PowerManager& power);
+    void processPending(TransportManager& transport, PowerManager& power);
 
     bool isCollecting() const;
 
     uint32_t getSampleIntervalMs() const;
 
 private:
-    StatusCode executeCommand(const CommandPacket& packet, PowerManager& power, BLEManager& ble);
+    StatusCode executeCommand(const CommandPacket& packet, PowerManager& power, TransportManager& transport);
 
     void logCommandResult(uint8_t rawCommand, StatusCode status) const;
 

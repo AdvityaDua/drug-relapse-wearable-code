@@ -44,8 +44,9 @@ public:
 
     /**
      * @brief Notifies connected client with a chunk of data.
+     * @return true if successfully sent, false if disconnected or error.
      */
-    void notifyData(const uint8_t* data, size_t length);
+    bool notifyData(const uint8_t* data, size_t length);
 
     /**
      * @brief Notifies connected client with battery percentage.

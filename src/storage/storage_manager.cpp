@@ -1,8 +1,18 @@
 #include "storage_manager.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+
+#include "config.h"
+#if USE_WIFI
+#include "wifi/wifi_manager.h"
+#else
+#include "ble/ble_manager.h"
+#endif
 
 static const char *TAG = "StorageManager";
 static const char *BASE_PATH = "/littlefs";
@@ -50,6 +60,14 @@ bool logSensorData(const char *csvData) {
   if (csvData == NULL)
     return false;
 
+  struct stat st;
+  if (stat(FILE_PATH, &st) == 0) {
+      if (st.st_size > 1000 * 1024) { // 1 MB limit
+          ESP_LOGE(TAG, "data.csv exceeds 1MB limit. Deleting to prevent filesystem corruption.");
+          remove(FILE_PATH);
+      }
+  }
+
   bool fileExists = true;
   FILE *check = fopen(FILE_PATH, "r");
   if (check == NULL) {
@@ -87,68 +105,73 @@ void clearData() {
     ESP_LOGE(TAG, "Failed to clear log file.");
   }
 }
-bool streamDataToBLE(BLEManager& ble) {
-  if (!ble.isConnected()) {
-    ESP_LOGW(TAG, "Cannot stream data, BLE is disconnected.");
+bool streamData(TransportManager& transport) {
+  if (!transport.isConnected()) {
+    ESP_LOGW(TAG, "Cannot stream data, client is disconnected.");
     return false;
   }
 
-  ESP_LOGI(TAG, "Starting BLE data sync...");
+  ESP_LOGI(TAG, "Starting data sync...");
   
   const char* SYNC_FILE_PATH = "/littlefs/sync.csv";
   
-  // Rename the current data.csv to sync.csv to avoid race conditions
-  if (rename(FILE_PATH, SYNC_FILE_PATH) != 0) {
-      ESP_LOGW(TAG, "Failed to rename log file, or no data exists.");
-      return false;
+  // Check if a previous sync file exists
+  FILE *check = fopen(SYNC_FILE_PATH, "r");
+  if (check == NULL) {
+      // No previous sync.csv exists, so we rename data.csv to sync.csv
+      if (rename(FILE_PATH, SYNC_FILE_PATH) != 0) {
+          ESP_LOGW(TAG, "Failed to rename log file, or no data exists.");
+          return false;
+      }
+  } else {
+      fclose(check);
+      ESP_LOGI(TAG, "Resuming previous sync from sync.csv...");
   }
 
   FILE *f = fopen(SYNC_FILE_PATH, "rb");
   if (f == NULL) {
     ESP_LOGW(TAG, "Failed to open sync log file.");
-    // In case of failure, try to restore the original name (optional)
-    rename(SYNC_FILE_PATH, FILE_PATH);
     return false;
   }
 
-  // Print file contents to console before sending
-  ESP_LOGI(TAG, "--- File Contents Start ---");
-  char line_buf[256];
-  while (fgets(line_buf, sizeof(line_buf), f) != NULL) {
-      size_t len = strlen(line_buf);
-      if (len > 0 && line_buf[len-1] == '\n') {
-          line_buf[len-1] = '\0';
-      }
-      ESP_LOGI(TAG, "%s", line_buf);
-  }
-  ESP_LOGI(TAG, "--- File Contents End ---");
-  
-  // Rewind file pointer to the beginning for BLE streaming
+  // Rewind file pointer to the beginning
   fseek(f, 0, SEEK_SET);
 
-  char buffer[150]; // Smaller 150 byte chunk size as requested
+  char buffer[150]; // Smaller 150 byte chunk size
   size_t bytesRead;
   size_t totalBytes = 0;
   int chunkCount = 0;
+  bool success = true;
+  
   while ((bytesRead = fread(buffer, 1, sizeof(buffer), f)) > 0) {
-    ble.notifyData((const uint8_t *)buffer, bytesRead);
+    if (!transport.notifyData((const uint8_t *)buffer, bytesRead)) {
+        ESP_LOGE(TAG, "Failed to send data chunk. Client disconnected?");
+        success = false;
+        break;
+    }
     totalBytes += bytesRead;
     chunkCount++;
 
-    // Allow NimBLE stack time to process the notification
+    // Allow TCP stack time to process the notification
     vTaskDelay(pdMS_TO_TICKS(15));
   }
 
   fclose(f);
   
+  if (!success) {
+      return false; // Exit early without deleting sync.csv
+  }
+
   // Send END_SYNC sentinel so the app knows streaming is complete
   const char* sentinel = "END_SYNC\n";
   vTaskDelay(pdMS_TO_TICKS(15));
-  ble.notifyData((const uint8_t *)sentinel, strlen(sentinel));
+  if (!transport.notifyData((const uint8_t *)sentinel, strlen(sentinel))) {
+      return false; // Sentinel failed to send, assume disconnected
+  }
   
-  ESP_LOGI(TAG, "BLE data sync complete. Sent %d chunks, %d bytes total.", chunkCount, totalBytes);
+  ESP_LOGI(TAG, "Data sync complete. Sent %d chunks, %d bytes total.", chunkCount, totalBytes);
 
-  // Delete the sync file after successful streaming
+  // Delete the sync file only after successful streaming
   if (remove(SYNC_FILE_PATH) == 0) {
       ESP_LOGI(TAG, "Sync file deleted.");
   } else {

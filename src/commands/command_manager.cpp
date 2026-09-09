@@ -1,6 +1,11 @@
 #include "command_manager.h"
 
+#if USE_WIFI
+#include "wifi/wifi_manager.h"
+#else
 #include "ble/ble_manager.h"
+#endif
+
 #include "config.h"
 #include "power/power_manager.h"
 #include "sensors/sensor_manager.h"
@@ -28,14 +33,14 @@ void CommandManager::begin() {
   ESP_LOGI(TAG, "Sample interval (ms): %lu", (unsigned long)sampleIntervalMs);
 }
 
-void CommandManager::processPending(BLEManager &ble, PowerManager &power) {
-  if (!ble.hasNewCommand()) {
+void CommandManager::processPending(TransportManager &transport, PowerManager &power) {
+  if (!transport.hasNewCommand()) {
     return;
   }
 
-  const CommandPacket packet = ble.getCommand();
+  const CommandPacket packet = transport.getCommand();
   const uint8_t rawCommand = static_cast<uint8_t>(packet.command);
-  const StatusCode status = executeCommand(packet, power, ble);
+  const StatusCode status = executeCommand(packet, power, transport);
 
   logCommandResult(rawCommand, status);
 }
@@ -48,7 +53,7 @@ uint32_t CommandManager::getSampleIntervalMs() const {
 
 StatusCode CommandManager::executeCommand(const CommandPacket &packet,
                                           PowerManager &power,
-                                          BLEManager &ble) {
+                                          TransportManager &transport) {
   uint8_t rawCommand = static_cast<uint8_t>(packet.command);
 
   if (!CommandUtils::isKnownCommand(rawCommand)) {
@@ -74,8 +79,8 @@ StatusCode CommandManager::executeCommand(const CommandPacket &packet,
     return StatusCode::SUCCESS;
 
   case Command::SYNC_DATA:
-    ESP_LOGI(TAG, "SYNC_DATA requested - Streaming to BLE");
-    if (StorageManager::streamDataToBLE(ble)) {
+    ESP_LOGI(TAG, "SYNC_DATA requested - Streaming to transport");
+    if (StorageManager::streamData(transport)) {
         return StatusCode::SUCCESS;
     } else {
         ESP_LOGW(TAG, "SYNC_DATA completed but no data was available to send.");
@@ -87,9 +92,9 @@ StatusCode CommandManager::executeCommand(const CommandPacket &packet,
     return StatusCode::SUCCESS;
 
   case Command::GET_BATTERY: {
-    ESP_LOGI(TAG, "GET_BATTERY requested - Reading ADC and sending to BLE");
+    ESP_LOGI(TAG, "GET_BATTERY requested - Reading ADC and sending to transport");
     uint8_t battPct = power.getBatteryPercentage();
-    ble.notifyBattery(battPct);
+    transport.notifyBattery(battPct);
     return StatusCode::SUCCESS;
   }
 
@@ -99,7 +104,7 @@ StatusCode CommandManager::executeCommand(const CommandPacket &packet,
     if (SensorManager::takeReading(jsonBuffer, sizeof(jsonBuffer))) {
       size_t len = strlen(jsonBuffer);
       if (len > 0) {
-        ble.notifyData((const uint8_t*)jsonBuffer, len);
+        transport.notifyData((const uint8_t*)jsonBuffer, len);
       }
     }
     logCommandResult(rawCommand, StatusCode::SUCCESS);
@@ -170,7 +175,7 @@ void CommandManager::logCommandResult(uint8_t rawCommand,
     statusStr = "INVALID_COMMAND";
     break;
   case StatusCode::BLE_DISCONNECTED:
-    statusStr = "BLE_DISCONNECTED";
+    statusStr = "TRANSPORT_DISCONNECTED";
     break;
   case StatusCode::NOT_IMPLEMENTED:
     statusStr = "NOT_IMPLEMENTED";

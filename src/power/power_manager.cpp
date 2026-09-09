@@ -174,6 +174,8 @@ void PowerManager::enterDeepSleep()
 }
 
 static adc_oneshot_unit_handle_t adc1_handle;
+static adc_cali_handle_t adc1_cali_handle = NULL;
+static bool do_calibration = false;
 
 uint8_t PowerManager::getBatteryPercentage()
 {
@@ -187,22 +189,40 @@ uint8_t PowerManager::getBatteryPercentage()
         config.atten = ADC_ATTEN_DB_12;
         config.bitwidth = ADC_BITWIDTH_DEFAULT;
         adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_0, &config); // GPIO0 is ADC1_CH0
+
+        adc_cali_curve_fitting_config_t cali_config = {
+            .unit_id = ADC_UNIT_1,
+            .chan = ADC_CHANNEL_0,
+            .atten = ADC_ATTEN_DB_12,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        esp_err_t ret = adc_cali_create_scheme_curve_fitting(&cali_config, &adc1_cali_handle);
+        do_calibration = (ret == ESP_OK);
+
         adcInitialized = true;
     }
 
-    int raw_val;
-    adc_oneshot_read(adc1_handle, ADC_CHANNEL_0, &raw_val);
+    uint32_t Vbatt = 0;
+    for (int i = 0; i < 16; i++) {
+        int raw = 0;
+        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_0, &raw));
+        int voltage = 0;
+        if (do_calibration) {
+            adc_cali_raw_to_voltage(adc1_cali_handle, raw, &voltage);
+        } else {
+            voltage = raw; // fallback
+        }
+        Vbatt += voltage;
+    }
+
+    // Apply calibration factor: (3.306V multimeter / 3.270V console)
+    float calibration_factor = 3.306f / 3.270f;
+    float Vbattf = 2.0f * (float)Vbatt / 16.0f / 1000.0f * calibration_factor;
+    float percentage = ((Vbattf - BATTERY_LOW_VOLTAGE) / (BATTERY_FULL_VOLTAGE - BATTERY_LOW_VOLTAGE)) * 100.0f;
     
-    // Convert raw reading to voltage. With 12dB attenuation, max voltage is roughly 3.3V, but usually voltage dividers are used.
-    // For a standard 1/2 voltage divider on a 4.2V battery, max voltage at pin is 2.1V.
-    // Assuming 3.3V reference and 12-bit resolution (4095).
-    // Voltage = (raw_val / 4095.0) * 3.3 * 2 (if using 1/2 divider).
-    // The user config thresholds: BATTERY_LOW_VOLTAGE (3.5), BATTERY_FULL_VOLTAGE (4.2).
-    
-    float voltage = ((float)raw_val / 4095.0f) * 3.3f * 2.0f; 
-    
-    if (voltage >= BATTERY_FULL_VOLTAGE) return 100;
-    if (voltage <= BATTERY_LOW_VOLTAGE) return 0;
-    
-    return (uint8_t)(((voltage - BATTERY_LOW_VOLTAGE) / (BATTERY_FULL_VOLTAGE - BATTERY_LOW_VOLTAGE)) * 100.0f);
+    if (percentage > 100.0f) percentage = 100.0f;
+    if (percentage < 0.0f) percentage = 0.0f;
+
+    ESP_LOGI(TAG, "Voltage: %.3f V, Percentage: %.1f %%", Vbattf, percentage);
+    return (uint8_t)percentage;
 }

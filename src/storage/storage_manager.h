@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
-#include "../ble/ble_manager.h"
+#include "../commands/command_manager.h"
 
 namespace StorageManager
 {
@@ -24,12 +24,7 @@ namespace StorageManager
      */
     void clearData();
 
-    /**
-     * @brief Opens data.log and streams its contents over BLE line-by-line, then deletes it.
-     * @param ble Reference to the BLEManager to send notifications through.
-     * @return true if data was streamed, false if no data existed.
-     */
-    bool streamDataToBLE(BLEManager& ble);
+    bool streamData(TransportManager& transport);
 
     /**
      * @brief Saves a binary calibration profile to LittleFS

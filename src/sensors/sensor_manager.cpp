@@ -134,6 +134,37 @@ namespace SensorManager
         ESP_LOGI(TAG, "--- SensorManager::takeReading() Started ---");
         powerOn();
 
+        // ---------------------------------------------------------
+        // DIAGNOSTIC: Full I2C Bus Scan
+        // ---------------------------------------------------------
+        ESP_LOGI(TAG, "┌── I2C FULL BUS SCAN ─────────────────────");
+        int foundCount = 0;
+        for (uint8_t addr = 0x03; addr <= 0x77; addr++) {
+            i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+            i2c_master_start(cmd);
+            i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+            i2c_master_stop(cmd);
+            esp_err_t probe = i2c_master_cmd_begin((i2c_port_t)I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(50));
+            i2c_cmd_link_delete(cmd);
+
+            if (probe == ESP_OK) {
+                foundCount++;
+                const char* name = "Unknown Device";
+                if (addr == 0x28) name = "BNO055 (Low)";
+                else if (addr == 0x29) name = "BNO055 (High)";
+                else if (addr == 0x48) name = "MAX30205 (Temp)";
+                else if (addr == 0x49) name = "TLA2022 (GSR)";
+                else if (addr == 0x57) name = "MAX30102 (PPG)";
+                
+                ESP_LOGI(TAG, "│ [DETECTED] 0x%02X -> %s", addr, name);
+            }
+        }
+        if (foundCount == 0) {
+            ESP_LOGW(TAG, "│ NO I2C DEVICES DETECTED!");
+        }
+        ESP_LOGI(TAG, "└──────────────────────────────────────────");
+        // ---------------------------------------------------------
+
         // 1. Read MAX30102 (takes ~1 second)
         MAX30102::MAX30102_Data maxData = MAX30102::readAndCalculate();
         // vTaskDelay(pdMS_TO_TICKS(100)); // Simulate time taken

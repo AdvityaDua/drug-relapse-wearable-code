@@ -1,5 +1,5 @@
 idf_component_register(
-    SRC_DIRS "." "ble" "commands" "power" "sensors" "storage"
+    SRC_DIRS "." "wifi" "ble" "commands" "power" "sensors" "storage"
     INCLUDE_DIRS "." "../include"
-    REQUIRES bt driver esp_pm esp_timer
+    REQUIRES esp_wifi lwip driver esp_pm esp_timer bt
 )

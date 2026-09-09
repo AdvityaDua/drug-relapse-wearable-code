@@ -7,6 +7,9 @@
                     DEVICE INFORMATION
 =========================================================*/
 
+// Define whether to use WiFi (true) or BLE (false)
+#define USE_WIFI false
+
 constexpr char DEVICE_NAME[] = "Nudge Band";
 
 /*=========================================================
@@ -21,9 +24,9 @@ constexpr uint32_t LONG_PRESS_DURATION_MS = 2000; // 2 seconds to toggle power
 // I2C Configuration
 // --------------------------------------------------------
 #define I2C_MASTER_SCL_IO                                                      \
-  16 /*!< GPIO number used for I2C master clock (Physical Pin D6) */
+  23 /*!< GPIO number used for I2C master clock (Physical Pin D6) */
 #define I2C_MASTER_SDA_IO                                                      \
-  17 /*!< GPIO number used for I2C master data  (Physical Pin D7) */
+  22 /*!< GPIO number used for I2C master data  (Physical Pin D7) */
 #define I2C_MASTER_NUM                                                         \
   0 /*!< I2C master i2c port number, the number of i2c peripheral interfaces   \
        available will depend on the chip */
@@ -39,10 +42,13 @@ constexpr gpio_num_t PIN_SENSOR_POWER = GPIO_NUM_21;
 constexpr gpio_num_t PIN_LED = GPIO_NUM_15;
 
 /*=========================================================
-                    BLE CONFIGURATION
+                    WIFI CONFIGURATION
 =========================================================*/
 
-constexpr uint16_t BLE_MTU = 247;
+constexpr char WIFI_AP_SSID[] = "Nudge Band WiFi";
+constexpr char WIFI_AP_PASS[] = "nudge1234";
+constexpr uint16_t WIFI_TCP_PORT = 8080;
+constexpr int WIFI_MAX_CONNECTIONS = 1;
 
 /*=========================================================
                     BATTERY CONFIGURATION
