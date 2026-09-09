@@ -3,14 +3,16 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .models import Patient
+
 
 User = get_user_model()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
     """
-    Handles user registration.
-    Accepts email + password + optional profile fields.
+    Handles doctor registration.
+    Accepts email + password + optional name fields.
     Returns the created user data (password excluded).
     """
 
@@ -25,12 +27,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'email', 'password', 'password_confirm',
-            'first_name', 'last_name', 'device_id', 'date_of_birth',
+            'first_name', 'last_name',
         ]
         extra_kwargs = {
             'first_name': {'required': False},
             'last_name': {'required': False},
-            'device_id': {'required': False},
         }
 
     def validate(self, attrs):
@@ -95,17 +96,37 @@ class LoginSerializer(serializers.Serializer):
 
 class UserProfileSerializer(serializers.ModelSerializer):
     """
-    Read/update user profile information.
+    Read/update doctor profile information.
     """
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name',
-            'device_id', 'date_of_birth', 'profile_image', 'is_verified',
-            'created_at', 'updated_at',
+            'role', 'is_verified', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'email', 'username', 'is_verified', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'email', 'username', 'role', 'is_verified', 'created_at', 'updated_at']
+
+
+class PatientSerializer(serializers.ModelSerializer):
+    """
+    Full CRUD serializer for Patient records.
+    The authenticated doctor is automatically added to the patient's doctors.
+    """
+
+    doctors = serializers.PrimaryKeyRelatedField(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = Patient
+        fields = [
+            'id', 'doctors', 'name', 'date_of_birth', 'gender',
+            'device_id', 'substance_type', 'diagnosis_notes', 'notes',
+            'is_active', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'doctors', 'created_at', 'updated_at']
 
 
 class TokenPairSerializer(serializers.Serializer):

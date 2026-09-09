@@ -1,16 +1,15 @@
-from django.conf import settings
 from django.db import models
 
 
 class DataCollectionDay(models.Model):
     """
-    Represents a single calendar day of data collection for a user.
-    Created by the mobile app before syncing readings for that day.
-    Unique constraint on (user, date) ensures one entry per user per day.
+    Represents a single calendar day of data collection for a patient.
+    Created by the doctor's mobile app before syncing readings for that day.
+    Unique constraint on (patient, date) ensures one entry per patient per day.
     """
 
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+    patient = models.ForeignKey(
+        'users.Patient',
         on_delete=models.CASCADE,
         related_name='collection_days',
     )
@@ -24,24 +23,24 @@ class DataCollectionDay(models.Model):
         db_table = 'data_collection_days'
         constraints = [
             models.UniqueConstraint(
-                fields=['user', 'date'],
-                name='unique_user_collection_day',
+                fields=['patient', 'date'],
+                name='unique_patient_collection_day',
             ),
         ]
         indexes = [
-            models.Index(fields=['user', 'date'], name='idx_user_date'),
+            models.Index(fields=['patient', 'date'], name='idx_patient_date'),
         ]
         ordering = ['-date']
 
     def __str__(self):
-        return f"CollectionDay(user={self.user_id}, date={self.date})"
+        return f"CollectionDay(patient={self.patient_id}, date={self.date})"
 
 
 class SensorReading(models.Model):
     """
     Single timestamped sensor reading from the wearable device.
     Contains all 35 sensor fields from the data collection pipeline.
-    Linked to a DataCollectionDay; the user is derived via collection_day.user.
+    Linked to a DataCollectionDay; the patient is derived via collection_day.patient.
     Composite unique constraint on (collection_day, time) ensures idempotent syncs.
     """
 

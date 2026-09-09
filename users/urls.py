@@ -4,6 +4,8 @@ from .views import (
     RegisterView,
     LoginView,
     ProfileView,
+    PatientListCreateView,
+    PatientDetailView,
     TokenRefreshView,
     ForgotPasswordView,
     VerifyOTPView,
@@ -19,4 +21,8 @@ urlpatterns = [
     path('forgot-password/', ForgotPasswordView.as_view(), name='auth-forgot-password'),
     path('verify-otp/', VerifyOTPView.as_view(), name='auth-verify-otp'),
     path('reset-password/', ResetPasswordView.as_view(), name='auth-reset-password'),
+
+    # Patient management
+    path('patients/', PatientListCreateView.as_view(), name='patient-list-create'),
+    path('patients/<int:pk>/', PatientDetailView.as_view(), name='patient-detail'),
 ]

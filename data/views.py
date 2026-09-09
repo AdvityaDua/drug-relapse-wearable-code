@@ -1,10 +1,12 @@
 from django.db.models import Count, Min, Max
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
 
+from users.models import Patient
 from .models import DataCollectionDay, SensorReading
 from .serializers import (
     DataCollectionDaySerializer,
@@ -13,10 +15,21 @@ from .serializers import (
 )
 
 
+def get_patient_for_doctor(doctor, patient_id):
+    """
+    Helper: retrieve a Patient by ID, ensuring the authenticated doctor
+    is in the patient's doctors M2M set. Returns None if not found.
+    """
+    try:
+        return Patient.objects.filter(doctors=doctor, is_active=True).get(pk=patient_id)
+    except Patient.DoesNotExist:
+        return None
+
+
 class DataCollectionDayView(APIView):
     """
-    POST /api/data/days/
-        Create or retrieve a collection day for a given date.
+    POST /api/data/patients/<patient_id>/days/
+        Create or retrieve a collection day for a given date and patient.
         Uses get_or_create for idempotency — calling with the same date
         always returns the same day.
 
@@ -26,24 +39,31 @@ class DataCollectionDayView(APIView):
             {"date": "2026-08-20"}
 
         Response (201 - created / 200 - already exists):
-            {"id": 1, "date": "2026-08-20", "reading_count": 0, ...}
+            {"id": 1, "patient": 3, "date": "2026-08-20", "reading_count": 0, ...}
 
-    GET /api/data/days/
-        List all collection days for the authenticated user,
+    GET /api/data/patients/<patient_id>/days/
+        List all collection days for a specific patient,
         annotated with reading counts.
 
         Response (200):
-            [{"id": 1, "date": "2026-08-20", "reading_count": 42, ...}, ...]
+            [{"id": 1, "patient": 3, "date": "2026-08-20", "reading_count": 42, ...}, ...]
     """
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    def post(self, request, patient_id):
+        patient = get_patient_for_doctor(request.user, patient_id)
+        if patient is None:
+            return Response(
+                {'message': 'Patient not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         serializer = DataCollectionDaySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         day, created = DataCollectionDay.objects.get_or_create(
-            user=request.user,
+            patient=patient,
             date=serializer.validated_data['date'],
         )
 
@@ -56,10 +76,17 @@ class DataCollectionDayView(APIView):
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
-    def get(self, request):
+    def get(self, request, patient_id):
+        patient = get_patient_for_doctor(request.user, patient_id)
+        if patient is None:
+            return Response(
+                {'message': 'Patient not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         days = (
             DataCollectionDay.objects
-            .filter(user=request.user)
+            .filter(patient=patient)
             .annotate(reading_count=Count('readings'))
             .order_by('-date')
         )
@@ -69,15 +96,17 @@ class DataCollectionDayView(APIView):
 
 class DataCollectionDayDetailView(APIView):
     """
-    GET /api/data/days/<id>/
+    GET /api/data/patients/<patient_id>/days/<id>/
 
     Returns details of a specific collection day, including summary stats.
+    The patient must belong to the authenticated doctor.
 
     Requires: Authorization: Bearer <access_token>
 
     Response (200):
         {
             "id": 1,
+            "patient": 3,
             "date": "2026-08-20",
             "reading_count": 42,
             "first_reading_time": 1234567890,
@@ -92,11 +121,18 @@ class DataCollectionDayDetailView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, pk):
+    def get(self, request, patient_id, pk):
+        patient = get_patient_for_doctor(request.user, patient_id)
+        if patient is None:
+            return Response(
+                {'message': 'Patient not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         try:
             day = (
                 DataCollectionDay.objects
-                .filter(user=request.user, pk=pk)
+                .filter(patient=patient, pk=pk)
                 .annotate(
                     reading_count=Count('readings'),
                     first_reading_time=Min('readings__time'),
@@ -118,10 +154,11 @@ class DataCollectionDayDetailView(APIView):
 
 class SensorUploadView(APIView):
     """
-    POST /api/data/upload/
+    POST /api/data/patients/<patient_id>/upload/
 
     Bulk upload sensor readings linked to a DataCollectionDay.
     Uses ignore_conflicts so re-syncing the same data is safe (idempotent).
+    The patient must belong to the authenticated doctor.
 
     Requires: Authorization: Bearer <access_token>
 
@@ -143,12 +180,28 @@ class SensorUploadView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    def post(self, request, patient_id):
+        patient = get_patient_for_doctor(request.user, patient_id)
+        if patient is None:
+            return Response(
+                {'message': 'Patient not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         serializer = BulkSensorUploadSerializer(
             data=request.data,
             context={'request': request},
         )
         serializer.is_valid(raise_exception=True)
+
+        # Additional check: ensure the collection day belongs to this patient
+        collection_day = serializer.validated_data['collection_day']
+        if collection_day.patient_id != patient.pk:
+            return Response(
+                {'message': 'Collection day does not belong to this patient.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         created = serializer.save()
 
         return Response(
@@ -162,11 +215,12 @@ class SensorUploadView(APIView):
 
 class SensorSyncView(ListAPIView):
     """
-    GET /api/data/sync/?after=<unix_timestamp>
+    GET /api/data/patients/<patient_id>/sync/?after=<unix_timestamp>
 
-    Pull sensor readings after a given timestamp for the authenticated user.
+    Pull sensor readings after a given timestamp for a specific patient.
     Used by the mobile app to sync data it may have missed.
     Results are paginated (100 per page by default).
+    The patient must belong to the authenticated doctor.
 
     Requires: Authorization: Bearer <access_token>
 
@@ -176,7 +230,7 @@ class SensorSyncView(ListAPIView):
     Response (200):
         {
             "count": 250,
-            "next": "http://.../api/data/sync/?after=1234567890&page=2",
+            "next": "http://.../api/data/patients/3/sync/?after=1234567890&page=2",
             "previous": null,
             "results": [ ... ]
         }
@@ -186,8 +240,14 @@ class SensorSyncView(ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        patient_id = self.kwargs['patient_id']
+        patient = get_patient_for_doctor(self.request.user, patient_id)
+
+        if patient is None:
+            return SensorReading.objects.none()
+
         queryset = SensorReading.objects.filter(
-            collection_day__user=self.request.user,
+            collection_day__patient=patient,
         )
 
         after = self.request.query_params.get('after')
@@ -203,10 +263,11 @@ class SensorSyncView(ListAPIView):
 
 class SensorLatestView(APIView):
     """
-    GET /api/data/latest/
+    GET /api/data/patients/<patient_id>/latest/
 
-    Returns the most recent sensor reading for the authenticated user.
+    Returns the most recent sensor reading for a specific patient.
     Useful for dashboard quick-glance display.
+    The patient must belong to the authenticated doctor.
 
     Requires: Authorization: Bearer <access_token>
 
@@ -219,10 +280,17 @@ class SensorLatestView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, patient_id):
+        patient = get_patient_for_doctor(request.user, patient_id)
+        if patient is None:
+            return Response(
+                {'message': 'Patient not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         latest = (
             SensorReading.objects
-            .filter(collection_day__user=request.user)
+            .filter(collection_day__patient=patient)
             .order_by('-time')
             .first()
         )

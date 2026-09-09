@@ -12,11 +12,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenRefreshView as JWTTokenRefreshView
 
-from .models import PasswordResetOTP
+from .models import PasswordResetOTP, Patient
 from .serializers import (
     RegisterSerializer,
     LoginSerializer,
     UserProfileSerializer,
+    PatientSerializer,
     TokenPairSerializer,
     ForgotPasswordSerializer,
     VerifyOTPSerializer,
@@ -34,17 +35,15 @@ class RegisterView(APIView):
     """
     POST /api/auth/register/
 
-    Create a new user account and return JWT tokens.
+    Create a new doctor account and return JWT tokens.
 
     Request body:
         {
-            "email": "user@example.com",
+            "email": "doctor@example.com",
             "password": "securepass123",
             "password_confirm": "securepass123",
-            "first_name": "John",          (optional)
-            "last_name": "Doe",            (optional)
-            "device_id": "WEARABLE-001",   (optional)
-            "date_of_birth": "1995-06-15"  (optional)
+            "first_name": "Dr. Jane",      (optional)
+            "last_name": "Smith"            (optional)
         }
 
     Response (201):
@@ -81,7 +80,7 @@ class LoginView(APIView):
 
     Request body:
         {
-            "email": "user@example.com",
+            "email": "doctor@example.com",
             "password": "securepass123"
         }
 
@@ -113,8 +112,8 @@ class LoginView(APIView):
 
 class ProfileView(APIView):
     """
-    GET  /api/auth/profile/ — Retrieve authenticated user's profile.
-    PUT  /api/auth/profile/ — Update authenticated user's profile.
+    GET  /api/auth/profile/ — Retrieve authenticated doctor's profile.
+    PUT  /api/auth/profile/ — Update authenticated doctor's profile.
 
     Requires: Authorization: Bearer <access_token>
     """
@@ -136,6 +135,114 @@ class ProfileView(APIView):
         return Response(serializer.data)
 
 
+class PatientListCreateView(APIView):
+    """
+    GET  /api/auth/patients/
+        List all patients managed by the authenticated doctor.
+        Only active patients are shown by default; pass ?include_inactive=true
+        to include soft-deleted patients.
+
+    POST /api/auth/patients/
+        Create a new patient and automatically assign the authenticated
+        doctor to the patient's doctors list.
+
+        Request body:
+            {
+                "name": "John Doe",
+                "date_of_birth": "1990-05-15",       (optional)
+                "gender": "male",                     (optional)
+                "device_id": "WEARABLE-001",          (optional)
+                "substance_type": "opioids",          (optional)
+                "diagnosis_notes": "OUD since 2020",  (optional)
+                "notes": "Weekly check-in"            (optional)
+            }
+
+    Requires: Authorization: Bearer <access_token>
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        patients = Patient.objects.filter(doctors=request.user)
+
+        include_inactive = request.query_params.get('include_inactive', '').lower()
+        if include_inactive != 'true':
+            patients = patients.filter(is_active=True)
+
+        serializer = PatientSerializer(patients, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = PatientSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        patient = serializer.save()
+
+        # Automatically add the creating doctor to the patient's doctors
+        patient.doctors.add(request.user)
+
+        # Re-serialize to include the doctor in the response
+        response_serializer = PatientSerializer(patient)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class PatientDetailView(APIView):
+    """
+    GET    /api/auth/patients/<id>/  — Retrieve a patient's details.
+    PUT    /api/auth/patients/<id>/  — Update a patient's details.
+    DELETE /api/auth/patients/<id>/  — Soft-delete a patient (set is_active=False).
+
+    Only patients belonging to the authenticated doctor can be accessed.
+
+    Requires: Authorization: Bearer <access_token>
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _get_patient(self, request, pk):
+        """Helper to get a patient that belongs to the authenticated doctor."""
+        try:
+            return Patient.objects.filter(doctors=request.user).get(pk=pk)
+        except Patient.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        patient = self._get_patient(request, pk)
+        if patient is None:
+            return Response(
+                {'message': 'Patient not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = PatientSerializer(patient)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        patient = self._get_patient(request, pk)
+        if patient is None:
+            return Response(
+                {'message': 'Patient not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = PatientSerializer(patient, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, pk):
+        """Soft-delete: set is_active=False instead of removing the record."""
+        patient = self._get_patient(request, pk)
+        if patient is None:
+            return Response(
+                {'message': 'Patient not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        patient.is_active = False
+        patient.save(update_fields=['is_active', 'updated_at'])
+        return Response(
+            {'message': 'Patient deactivated.'},
+            status=status.HTTP_200_OK,
+        )
+
+
 class ForgotPasswordView(APIView):
     """
     POST /api/auth/forgot-password/
@@ -144,7 +251,7 @@ class ForgotPasswordView(APIView):
     sent to the user's email.
 
     Request body:
-        {"email": "user@example.com"}
+        {"email": "doctor@example.com"}
 
     Response (200):
         {"message": "OTP sent to your email."}
@@ -200,7 +307,7 @@ class VerifyOTPView(APIView):
     "code verified" UI before asking for the new password.
 
     Request body:
-        {"email": "user@example.com", "code": "123456"}
+        {"email": "doctor@example.com", "code": "123456"}
 
     Response (200):
         {"message": "OTP verified successfully."}
@@ -247,7 +354,7 @@ class ResetPasswordView(APIView):
 
     Request body:
         {
-            "email": "user@example.com",
+            "email": "doctor@example.com",
             "code": "123456",
             "new_password": "newSecurePass123!",
             "new_password_confirm": "newSecurePass123!"

@@ -1,4 +1,6 @@
 from rest_framework import serializers
+
+from users.models import Patient
 from .models import DataCollectionDay, SensorReading
 
 
@@ -6,15 +8,16 @@ class DataCollectionDaySerializer(serializers.ModelSerializer):
     """
     Serializes a DataCollectionDay.
     Includes a computed 'reading_count' for listing views.
-    The 'user' field is set automatically from the authenticated request.
+    The 'patient' field is set from the URL path parameter.
     """
 
     reading_count = serializers.IntegerField(read_only=True, required=False)
+    patient = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = DataCollectionDay
-        fields = ['id', 'date', 'reading_count', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        fields = ['id', 'patient', 'date', 'reading_count', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'patient', 'created_at', 'updated_at']
 
 
 class SensorReadingSerializer(serializers.ModelSerializer):
@@ -33,6 +36,8 @@ class BulkSensorUploadSerializer(serializers.Serializer):
     """
     Accepts a list of sensor readings for batch upload from the mobile app.
     Readings are linked to a specific DataCollectionDay.
+
+    The doctor must own the patient associated with the collection day.
 
     Expected payload:
     {
@@ -55,13 +60,16 @@ class BulkSensorUploadSerializer(serializers.Serializer):
     )
 
     def validate_collection_day(self, value):
-        """Ensure the collection day exists and belongs to the authenticated user."""
-        user = self.context['request'].user
+        """Ensure the collection day exists and its patient belongs to the authenticated doctor."""
+        doctor = self.context['request'].user
         try:
-            day = DataCollectionDay.objects.get(pk=value, user=user)
+            day = DataCollectionDay.objects.get(
+                pk=value,
+                patient__doctors=doctor,
+            )
         except DataCollectionDay.DoesNotExist:
             raise serializers.ValidationError(
-                "Collection day not found or does not belong to you."
+                "Collection day not found or its patient does not belong to you."
             )
         return day
 
