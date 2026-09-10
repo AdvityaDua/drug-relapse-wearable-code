@@ -8,16 +8,25 @@ class DataCollectionDaySerializer(serializers.ModelSerializer):
     """
     Serializes a DataCollectionDay.
     Includes a computed 'reading_count' for listing views.
+    Includes a computed 'day' field indicating the nth day since patient creation.
     The 'patient' field is set from the URL path parameter.
     """
 
     reading_count = serializers.IntegerField(read_only=True, required=False)
     patient = serializers.PrimaryKeyRelatedField(read_only=True)
+    day = serializers.SerializerMethodField()
+    device_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = DataCollectionDay
-        fields = ['id', 'patient', 'date', 'reading_count', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'patient', 'created_at', 'updated_at']
+        fields = ['id', 'patient', 'date', 'day', 'device_id', 'reading_count', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'patient', 'day', 'created_at', 'updated_at']
+
+    def get_day(self, obj):
+        if obj.patient and obj.patient.created_at and obj.date:
+            delta = obj.date - obj.patient.created_at.date()
+            return delta.days + 1
+        return None
 
 
 class SensorReadingSerializer(serializers.ModelSerializer):

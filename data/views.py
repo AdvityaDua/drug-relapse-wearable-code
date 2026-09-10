@@ -62,10 +62,21 @@ class DataCollectionDayView(APIView):
         serializer = DataCollectionDaySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        defaults = {}
+        if 'device_id' in serializer.validated_data:
+            defaults['device_id'] = serializer.validated_data['device_id']
+        elif patient.device_id:
+            defaults['device_id'] = patient.device_id
+
         day, created = DataCollectionDay.objects.get_or_create(
             patient=patient,
             date=serializer.validated_data['date'],
+            defaults=defaults
         )
+
+        if not created and 'device_id' in serializer.validated_data and day.device_id != serializer.validated_data['device_id']:
+            day.device_id = serializer.validated_data['device_id']
+            day.save(update_fields=['device_id', 'updated_at'])
 
         # Re-serialize with reading count annotation
         response_data = DataCollectionDaySerializer(day).data

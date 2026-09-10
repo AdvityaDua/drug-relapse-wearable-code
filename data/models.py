@@ -16,6 +16,12 @@ class DataCollectionDay(models.Model):
     date = models.DateField(
         help_text="The calendar date of data collection (YYYY-MM-DD)",
     )
+    device_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Unique identifier of the wearable device used for this collection day",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
