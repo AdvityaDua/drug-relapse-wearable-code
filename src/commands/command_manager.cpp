@@ -25,6 +25,7 @@ static const char *TAG = "CMD";
 
 CommandManager::CommandManager() {
   collecting = false;
+  patientId = 0;
   sampleIntervalMs = DEFAULT_SAMPLE_INTERVAL_MS;
 }
 
@@ -47,6 +48,8 @@ void CommandManager::processPending(TransportManager &transport, PowerManager &p
 
 bool CommandManager::isCollecting() const { return collecting; }
 
+uint64_t CommandManager::getPatientId() const { return patientId; }
+
 uint32_t CommandManager::getSampleIntervalMs() const {
   return sampleIntervalMs;
 }
@@ -66,7 +69,12 @@ StatusCode CommandManager::executeCommand(const CommandPacket &packet,
       return StatusCode::BUSY;
     }
     collecting = true;
-    ESP_LOGI(TAG, "Data collection started.");
+    patientId = 0; // Default
+    if (packet.length >= sizeof(uint64_t)) {
+      memcpy(&patientId, packet.payload, sizeof(uint64_t));
+    }
+    transport.notifyStatus(collecting, patientId);
+    ESP_LOGI(TAG, "Data collection started. Patient ID: %llu", (unsigned long long)patientId);
     return StatusCode::SUCCESS;
 
   case Command::STOP_COLLECTION:
@@ -74,6 +82,7 @@ StatusCode CommandManager::executeCommand(const CommandPacket &packet,
       return StatusCode::SUCCESS;
     }
     collecting = false;
+    transport.notifyStatus(collecting, patientId);
     MAX30102::powerOff();
     ESP_LOGI(TAG, "Data collection stopped. PPG sensor turned off.");
     return StatusCode::SUCCESS;

@@ -53,7 +53,14 @@ public:
      */
     void notifyBattery(uint8_t percentage);
 
+    /**
+     * @brief Notifies connected client with collecting status.
+     */
+    void notifyStatus(bool isCollecting, uint64_t patientId);
+
     uint8_t lastBatteryPercent;
+    bool lastStatusCollecting;
+    uint64_t lastPatientId;
 
     /* NimBLE callbacks (static, required by C API) */
     static int gapEventHandler(struct ble_gap_event* event, void* arg);

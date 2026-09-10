@@ -29,6 +29,7 @@ public:
     void processPending(TransportManager& transport, PowerManager& power);
 
     bool isCollecting() const;
+    uint64_t getPatientId() const;
 
     uint32_t getSampleIntervalMs() const;
 
@@ -38,6 +39,7 @@ private:
     void logCommandResult(uint8_t rawCommand, StatusCode status) const;
 
     bool collecting;
+    uint64_t patientId;
     uint32_t sampleIntervalMs;
 };
 

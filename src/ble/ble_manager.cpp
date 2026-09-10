@@ -44,9 +44,11 @@ static ble_uuid128_t s_serviceUuid;
 static ble_uuid128_t s_commandCharUuid;
 static ble_uuid128_t s_dataCharUuid;
 static ble_uuid128_t s_batteryCharUuid;
+static ble_uuid128_t s_statusCharUuid;
 
 static uint16_t s_dataValHandle;
 static uint16_t s_batteryValHandle;
+static uint16_t s_statusValHandle;
 
 /*=========================================================
               GATT Service Definition
@@ -84,6 +86,16 @@ static const struct ble_gatt_chr_def s_characteristics[] = {
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
         .min_key_size = 0,
         .val_handle = &s_batteryValHandle,
+        .cpfd = nullptr,
+    },
+    {
+        .uuid = &s_statusCharUuid.u,
+        .access_cb = BLEManager::gattAccessHandler,
+        .arg = nullptr,
+        .descriptors = nullptr,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .min_key_size = 0,
+        .val_handle = &s_statusValHandle,
         .cpfd = nullptr,
     },
     {0}, /* Terminator */
@@ -196,6 +208,15 @@ int BLEManager::gattAccessHandler(uint16_t conn_handle, uint16_t attr_handle,
       ESP_LOGI(TAG, "Battery READ: %d%%", battPct);
       return (rc == 0) ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
+    /* Handle READ on the status characteristic */
+    if (mgr && attr_handle == s_statusValHandle) {
+      uint8_t buf[9];
+      buf[0] = mgr->lastStatusCollecting ? 1 : 0;
+      memcpy(&buf[1], &mgr->lastPatientId, 8);
+      int rc = os_mbuf_append(ctxt->om, buf, sizeof(buf));
+      ESP_LOGI(TAG, "Status READ: %d, Patient ID: %llu", buf[0], (unsigned long long)mgr->lastPatientId);
+      return (rc == 0) ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
     return BLE_ATT_ERR_UNLIKELY;
   }
 
@@ -281,6 +302,8 @@ BLEManager::BLEManager() {
   latestPacket = {};
   connHandle = BLE_HS_CONN_HANDLE_NONE;
   lastBatteryPercent = 0;
+  lastStatusCollecting = false;
+  lastPatientId = 0;
 
   s_bleManager = this;
 }
@@ -296,6 +319,7 @@ void BLEManager::begin() {
   s_commandCharUuid = uuidFromString(COMMAND_CHARACTERISTIC_UUID);
   s_dataCharUuid = uuidFromString(DATA_CHARACTERISTIC_UUID);
   s_batteryCharUuid = uuidFromString(BATTERY_CHARACTERISTIC_UUID);
+  s_statusCharUuid = uuidFromString(STATUS_CHARACTERISTIC_UUID);
 
   /* Initialize NimBLE */
   nimble_port_init();
@@ -449,6 +473,29 @@ void BLEManager::notifyBattery(uint8_t percentage) {
   int rc = ble_gatts_notify_custom(connHandle, s_batteryValHandle, om);
   if (rc != 0) {
     ESP_LOGE(TAG, "Failed to send battery notification: %d", rc);
+  }
+}
+
+void BLEManager::notifyStatus(bool isCollecting, uint64_t patientId) {
+  lastStatusCollecting = isCollecting;
+  lastPatientId = patientId;
+
+  if (!connected || connHandle == BLE_HS_CONN_HANDLE_NONE)
+    return;
+
+  uint8_t buf[9];
+  buf[0] = isCollecting ? 1 : 0;
+  memcpy(&buf[1], &patientId, 8);
+
+  struct os_mbuf *om = ble_hs_mbuf_from_flat(buf, sizeof(buf));
+  if (!om) {
+    ESP_LOGE(TAG, "Failed to allocate mbuf for status notification");
+    return;
+  }
+
+  int rc = ble_gatts_notify_custom(connHandle, s_statusValHandle, om);
+  if (rc != 0) {
+    ESP_LOGE(TAG, "Failed to send status notification: %d", rc);
   }
 }
 #endif // !USE_WIFI

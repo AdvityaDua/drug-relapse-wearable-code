@@ -120,6 +120,14 @@ void WiFiManager::notifyBattery(uint8_t percentage)
     notifyData(&percentage, sizeof(percentage));
 }
 
+void WiFiManager::notifyStatus(bool isCollecting, uint64_t patientId)
+{
+    uint8_t buf[9];
+    buf[0] = isCollecting ? 1 : 0;
+    memcpy(&buf[1], &patientId, 8);
+    notifyData(buf, sizeof(buf));
+}
+
 bool WiFiManager::isConnected() const
 {
     return clientConnected;

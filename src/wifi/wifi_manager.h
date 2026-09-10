@@ -30,6 +30,7 @@ public:
     // Write data to the active TCP client
     bool notifyData(const uint8_t* data, size_t length);
     void notifyBattery(uint8_t percentage);
+    void notifyStatus(bool isCollecting, uint64_t patientId);
 
     bool isConnected() const;
 
