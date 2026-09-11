@@ -1,6 +1,6 @@
 #include "sensor_manager.h"
 #include "max30102.h"
-#include "bno055.h"
+#include "lsm6dsox.h"
 #include "tla2022.h"
 #include "max30205.h"
 #include "config.h"
@@ -77,16 +77,10 @@ namespace SensorManager
             ESP_LOGI(TAG, "MAX30102 initialized successfully.");
         }
 
-        if (!BNO055::init()) {
-            ESP_LOGE(TAG, "BNO055 initialization failed!");
+        if (!LSM6DSOX::init()) {
+            ESP_LOGE(TAG, "LSM6DSOX initialization failed!");
         } else {
-            ESP_LOGI(TAG, "BNO055 initialized successfully.");
-            // Auto-load calibration
-            uint8_t calibData[22];
-            if (StorageManager::loadCalibrationProfile(calibData, sizeof(calibData))) {
-                ESP_LOGI(TAG, "Loaded BNO055 calibration from LittleFS, injecting...");
-                BNO055::setCalibrationProfile(calibData);
-            }
+            ESP_LOGI(TAG, "LSM6DSOX initialized successfully.");
         }
 
         if (!TLA2022::init()) {
@@ -150,8 +144,8 @@ namespace SensorManager
             if (probe == ESP_OK) {
                 foundCount++;
                 const char* name = "Unknown Device";
-                if (addr == 0x28) name = "BNO055 (Low)";
-                else if (addr == 0x29) name = "BNO055 (High)";
+                if (addr == 0x6A) name = "LSM6DSOX (Low)";
+                else if (addr == 0x6B) name = "LSM6DSOX (High)";
                 else if (addr == 0x48) name = "MAX30205 (Temp)";
                 else if (addr == 0x49) name = "TLA2022 (GSR)";
                 else if (addr == 0x57) name = "MAX30102 (PPG)";
@@ -174,38 +168,15 @@ namespace SensorManager
         ESP_LOGI(TAG, "│ SpO2       : %ld %% (valid: %s)", maxData.spo2, maxData.validSPO2 ? "YES" : "NO");
         ESP_LOGI(TAG, "└──────────────────────────────────────────");
 
-        // 2. Read BNO055 (instantaneous I2C burst)
-        BNO055::BNO055_Data bnoData;
-        BNO055::readAll(&bnoData);
+        // 2. Read LSM6DSOX (instantaneous I2C burst)
+        LSM6DSOX::LSM6DSOX_Data lsmData;
+        LSM6DSOX::readAll(&lsmData);
 
-        ESP_LOGI(TAG, "┌── BNO055 (9-DOF IMU) ────────────────────");
-        ESP_LOGI(TAG, "│ Euler      : H=%.2f° R=%.2f° P=%.2f°", bnoData.eulerHeading, bnoData.eulerRoll, bnoData.eulerPitch);
-        ESP_LOGI(TAG, "│ Quaternion : W=%.4f X=%.4f Y=%.4f Z=%.4f", bnoData.quatW, bnoData.quatX, bnoData.quatY, bnoData.quatZ);
-        ESP_LOGI(TAG, "│ Accel      : X=%.2f Y=%.2f Z=%.2f m/s²", bnoData.accelX, bnoData.accelY, bnoData.accelZ);
-        ESP_LOGI(TAG, "│ Gyro       : X=%.2f Y=%.2f Z=%.2f dps", bnoData.gyroX, bnoData.gyroY, bnoData.gyroZ);
-        ESP_LOGI(TAG, "│ Mag        : X=%.2f Y=%.2f Z=%.2f µT", bnoData.magX, bnoData.magY, bnoData.magZ);
-        ESP_LOGI(TAG, "│ LinAccel   : X=%.2f Y=%.2f Z=%.2f m/s²", bnoData.linearAccelX, bnoData.linearAccelY, bnoData.linearAccelZ);
-        ESP_LOGI(TAG, "│ Gravity    : X=%.2f Y=%.2f Z=%.2f m/s²", bnoData.gravityX, bnoData.gravityY, bnoData.gravityZ);
-        ESP_LOGI(TAG, "│ Temp       : %d °C", bnoData.temp);
-        ESP_LOGI(TAG, "│ Calibration: Sys=%d Gyro=%d Accel=%d Mag=%d", bnoData.calibSys, bnoData.calibGyro, bnoData.calibAccel, bnoData.calibMag);
+        ESP_LOGI(TAG, "┌── LSM6DSOX (6-DOF IMU) ──────────────────");
+        ESP_LOGI(TAG, "│ Accel      : X=%.2f Y=%.2f Z=%.2f m/s²", lsmData.accelX, lsmData.accelY, lsmData.accelZ);
+        ESP_LOGI(TAG, "│ Gyro       : X=%.2f Y=%.2f Z=%.2f dps", lsmData.gyroX, lsmData.gyroY, lsmData.gyroZ);
+        ESP_LOGI(TAG, "│ Temp       : %.2f °C", lsmData.temp);
         ESP_LOGI(TAG, "└──────────────────────────────────────────");
-
-        // Auto-save calibration if fully calibrated
-        if (bnoData.calibSys == 3 && bnoData.calibGyro == 3 && bnoData.calibAccel == 3 && bnoData.calibMag == 3) {
-            uint8_t currentCalib[22];
-            static uint8_t lastSavedCalib[22] = {0};
-            static bool hasSavedCalib = false;
-            
-            if (BNO055::getCalibrationProfile(currentCalib)) {
-                // Check if calibration data has changed before writing to flash to prevent wear
-                if (!hasSavedCalib || memcmp(currentCalib, lastSavedCalib, sizeof(currentCalib)) != 0) {
-                    StorageManager::saveCalibrationProfile(currentCalib, sizeof(currentCalib));
-                    memcpy(lastSavedCalib, currentCalib, sizeof(currentCalib));
-                    hasSavedCalib = true;
-                    ESP_LOGI(TAG, "BNO055 calibration updated - profile saved to flash.");
-                }
-            }
-        }
 
         // 3. Read TinyGSR (takes ~72ms for 8 samples)
         int16_t gsrValue = TLA2022::readGSR();
@@ -228,19 +199,13 @@ namespace SensorManager
         // 5. Construct CSV
         if (outBuffer != nullptr && maxLen > 0) {
             snprintf(outBuffer, maxLen,
-                "%ld,%d,%.2f,%ld,%d,%ld,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d,%d",
+                "%ld,%d,%.2f,%ld,%d,%ld,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f",
                 (long)tv.tv_sec,
                 gsrValue, bodyTemp,
                 maxData.heartRate, maxData.validHR, maxData.spo2, maxData.validSPO2,
-                bnoData.eulerHeading, bnoData.eulerRoll, bnoData.eulerPitch,
-                bnoData.quatW, bnoData.quatX, bnoData.quatY, bnoData.quatZ,
-                bnoData.linearAccelX, bnoData.linearAccelY, bnoData.linearAccelZ,
-                bnoData.gravityX, bnoData.gravityY, bnoData.gravityZ,
-                bnoData.accelX, bnoData.accelY, bnoData.accelZ,
-                bnoData.gyroX, bnoData.gyroY, bnoData.gyroZ,
-                bnoData.magX, bnoData.magY, bnoData.magZ,
-                bnoData.temp,
-                bnoData.calibSys, bnoData.calibGyro, bnoData.calibAccel, bnoData.calibMag
+                lsmData.accelX, lsmData.accelY, lsmData.accelZ,
+                lsmData.gyroX, lsmData.gyroY, lsmData.gyroZ,
+                lsmData.temp
             );
 
             ESP_LOGI(TAG, "Generated CSV Data:\n%s", outBuffer);
